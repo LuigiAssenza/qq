@@ -111,21 +111,137 @@ class Data(dict):
          result[key][1].append(row[field2])
       return result
 
+
 #-----------------------------------------------------------------------------
+# return a dict whose keys from rows are values of a specific input field:
+
+def partition(field, rows):
+   res = {}
+   for row in rows:
+      if field not in row:
+         return { field : rows }
+
+      if row[field] not in res:
+         res[row[field]] = []
+      else:
+         res[row[field]].append(row)
+   return res
+
+
+#-----------------------------------------------------------------------------
+
+class Var(dict):
+   def __init__(self, name, **kv):
+      self.name = name
+      super(Var,self).__init__(**kv)
+
+#-----------------------------------------------------------------------------
+
+class Relationship(object):
+   def __init__(self, name, **kv):
+      self.name = name
+
+class Pair(Relationship):
+   def __init__(self, **kv):
+      self.styles = {}
+      if "alpha" in kv:
+         self.styles["alpha"] = kv["alpha"]
+      super(Pair, self).__init__("Pair")
+
+class Correlate(Relationship):
+   def __init__(self, **kv):
+      self.styles = dict(color="#333333")
+      if "color" in kv:
+         self.styles["color"] = kv["color"]
+      super(Correlate, self).__init__("Correlate")
+
+#-----------------------------------------------------------------------------
+
+COLOR = ['b', 'g', 'r']
 
 class Plot(object):
    def __init__(self, data):
       self.data = data
-      self.x = None
-      self.y = None
-      self.xx = None
-      self.yy = None
-      self.xy = None
+      self.x = self.y = self.xx = self.yy = self.xy = self.color = self.size = self.shape = None
+      self.figure = None
+      self.styles = {}
 
-   def __getattribute__(self, var):
-      return object.__getattribute__(self, var)
+   def __getattribute__(self, name):
+      return object.__getattribute__(self, name)
 
-#-----------------------------------------------------------------------------
+   def __setattr__(self, name, value):
+      if value is not None:
+         if name == 'xy':
+            if not (isinstance(value, tuple) or isinstance(value, list)):
+               value = (value, )
+
+         if name=='size' and not (isinstance(value,int) or isinstance(value,float) or isinstance(value,Var)):
+            raise Exception("Size must be a number or a Var() instance.", value)
+
+      object.__setattr__(self, name, value)
+
+
+   def plotPair(self, relation, ax):
+      subplots = []
+      rows = self.data._rows_
+      if isinstance(self.color, Var):
+         split_rows = partition(self.color.name, rows)
+      else:
+         split_rows = {None : rows}
+
+      i = 0
+      for key, row in split_rows.items():
+         options = dict(color = self.color if isinstance(self.color,basestring) else COLOR[i])
+         i += 1
+
+         if self.size is not None:
+            if isinstance(self.size, int) or isinstance(self.size, float):
+               options['s'] = self.size
+            else:
+               if 't' in self.size:
+                  options['s'] = [self.size['t'](r[self.size.name]) for r in row]
+               else:
+                  options['s'] = [r[self.size.name] for r in row]
+
+         options.update(self.styles)
+         options.update(relation.styles)
+
+         subplots.append(dict(
+            x = [r[self.x.name] for r in row],
+            y = [r[self.y.name] for r in row],
+            options = options
+         ))
+
+      for subplot in subplots:
+         ax.scatter(subplot['x'], subplot['y'], **subplot['options'])
+
+
+   def plotCorrelation(self, relation, ax):
+      subplots = []
+      rows = self.data._rows_
+      options = {}
+      options.update(relation.styles)
+
+      x = [ r[self.x.name] for r in rows ]
+      y = [ r[self.y.name] for r in rows ]
+      slope, const = np.linalg.lstsq(np.vstack([x, np.ones(len(x))]).T, y)[0]
+
+      ax.plot(x, np.array(x)*slope + const, **options)
+
+
+   def plot(self):
+      plots = dict(Pair=self.plotPair, Correlate=self.plotCorrelation)
+      self.figure, ax = plt.subplots()
+      for relation in self.xy:
+         plot_func = plots.get(relation.name)
+         if plot_func is None:
+            raise Exception("Unknown relation", relation.name)
+         plot_func(relation, ax)
+      plt.show()
+
+#---------------------------------------------------------------------------------
+# read a delimited file and return a plot referenced to "data" based on this file
+#---------------------------------------------------------------------------------
 
 def read(filename, sep=None, header=None, skip_header=0):
    if sep is None:
@@ -142,18 +258,22 @@ def read(filename, sep=None, header=None, skip_header=0):
       for row in reader:
          if skip_header > 0:
             skip_header -= 1
-         elif row and row[0] != '#':
+         elif row and row[0][0] != '#':
             rows.append(row)
 
    return Plot(Data(header or rows.pop(0), rows))
 
-#-----------------------------------------------------------------------------
+#---------------------------------------------------------------------------------
 # import sys
 # print sys.__stdin__.isatty()
 
 if __name__ == '__main__':
    plot = read("datasets/iris.csv")
-   print plot.data["Petal.Length"], plot.data.keys()
+   plot.x = Var("Petal.Length")
+   plot.y = Var("Petal.Width")
+   plot.color = Var("Species")
+   plot.xy = Pair(), Correlate()
+   plot.plot()
 
-   print plot.x
-   print plot.y
+   # plot.size = Var("Sepal.Width", t=lambda x: 10*x*x*x)
+   # plot.xy = Pair(alpha=0.4), Correlate()
