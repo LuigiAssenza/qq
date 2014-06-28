@@ -6,7 +6,55 @@ import re
 import keyword
 import matplotlib.pyplot as plt
 import numpy as np
+import math
 
+COLOR = ['#131313', '#f3c300', '#875692', '#f38400', '#a1caf1', '#be0032', '#c2b280', '#848482', '#008856',
+   '#e68fac', '#0067a5', '#f99379', '#604e97', '#f6a600', '#b3446c', '#dcd300', '#882d17', '#27a64c',
+   '#654522', '#e25822', '#2b3d26']
+
+# http://colorbrewer2.org/
+COLOR = [
+   '#8dd3c7',
+   '#ffffb3',
+   '#bebada',
+   '#fb8072',
+   '#80b1d3',
+   '#fdb462',
+   '#b3de69',
+   '#fccde5',
+   '#d9d9d9',
+   '#bc80bd',
+   '#ccebc5',
+   '#ffed6f'
+]
+
+COLOR = [
+   '#e41a1c',
+   '#377eb8',
+   '#4daf4a',
+   '#984ea3',
+   '#ff7f00',
+   '#ffff33',
+   '#a65628',
+   '#f781bf',
+   '#999999',
+   '#ccebc5',  # extra
+]
+
+COLOR = [
+   '#a6cee3',
+   '#1f78b4',
+   '#b2df8a',
+   '#33a02c',
+   '#fb9a99',
+   '#e31a1c',
+   '#fdbf6f',
+   '#ff7f00',
+   '#cab2d6',
+   '#6a3d9a',
+   '#ffff99',
+   '#b15928',
+]
 #-----------------------------------------------------------------------------
 def is_float(s):
    try:
@@ -93,23 +141,24 @@ class Data(dict):
          raise StopIteration
 
 
-   # select all pairs (field1, field2) partitioned into key1, key2
-   # return a dict of two lists x, y
-   def select(self, field1, field2, key1, key2=None):
-      if key2 is None:
-         all_keys = set(self[key1])
-      else:
-         all_keys = set((k1,k2) for k1 in set(self[key1]) for k2 in set(self[key2]))
+   def select(self, xx=None, yy=None):
+      if xx is None and yy is None:
+         return 0, 0, self._rows_
 
-      result = { k : ([], []) for k in all_keys }
+      xx_set = set(self[xx] if xx is not None else [])
+      yy_set = set(self[yy] if yy is not None else [])
+
+      if xx is None:
+         result = { k : [] for k in yy_set }
+      elif yy is None:
+         result = { k : [] for k in xx_set }
+      else:
+         result = { (k2,k1): [] for k1 in xx_set for k2 in yy_set }
 
       for row in self._rows_:
-         key = row[key1] if key2 is None else (row[key1], row[key2])
-         if key not in result:
-            result[key] = ([], [])
-         result[key][0].append(row[field1])
-         result[key][1].append(row[field2])
-      return result
+         key = row[yy] if xx is None else row[xx] if yy is None else (row[yy],row[xx])
+         result[key].append(row)
+      return len(yy_set), len(xx_set), result
 
 
 #-----------------------------------------------------------------------------
@@ -141,9 +190,10 @@ class Relationship(object):
    def __init__(self, name, **kv):
       self.name = name
 
+
 class Pair(Relationship):
    def __init__(self, **kv):
-      self.styles = {}
+      self.styles = dict(marker='o')
       if "alpha" in kv:
          self.styles["alpha"] = kv["alpha"]
       super(Pair, self).__init__("Pair")
@@ -157,23 +207,40 @@ class Correlate(Relationship):
 
 #-----------------------------------------------------------------------------
 
-COLOR = ['b', 'g', 'r']
-
 class Plot(object):
    def __init__(self, data):
       self.data = data
       self.x = self.y = self.xx = self.yy = self.xy = self.color = self.size = self.shape = None
       self.figure = None
       self.styles = {}
+      self.plot_func = dict(Pair=self.plotPair, Correlate=self.plotCorrelation)
+      self.markers_and_labels = None
 
    def __getattribute__(self, name):
       return object.__getattribute__(self, name)
 
    def __setattr__(self, name, value):
       if value is not None:
+         if name == 'x':
+            self.xrange = min(self.data[value.name]), max(self.data[value.name])
+            inc = abs(self.xrange[1] - self.xrange[0]) * 0.1
+            self.xrange = self.xrange[0]-inc, self.xrange[1]+inc
+
+         if name == 'y':
+            self.yrange = min(self.data[value.name]), max(self.data[value.name])
+            inc = abs(self.yrange[1] - self.yrange[0]) * 0.1
+            self.yrange = self.yrange[0]-inc, self.yrange[1]+inc
+
          if name == 'xy':
             if not (isinstance(value, tuple) or isinstance(value, list)):
                value = (value, )
+            for v in value:
+               if v.name == "Pair":
+                  x = self.data[self.x.name]
+                  y = self.data[self.y.name]
+                  if x.type!=1 or y.type!=1:
+                     raise Exception("%s (type %s) and %s (type %s) must be numerical data" %
+                        (self.x.name, x.type, self.y.name, y.type))
 
          if name=='size' and not (isinstance(value,int) or isinstance(value,float) or isinstance(value,Var)):
             raise Exception("Size must be a number or a Var() instance.", value)
@@ -181,18 +248,25 @@ class Plot(object):
       object.__setattr__(self, name, value)
 
 
-   def plotPair(self, relation, ax):
+   def plotPair(self, relation, ax, rows):
       subplots = []
-      rows = self.data._rows_
       if isinstance(self.color, Var):
          split_rows = partition(self.color.name, rows)
       else:
          split_rows = {None : rows}
 
       i = 0
+      markers, marker_labels = [], []
       for key, row in split_rows.items():
          options = dict(color = self.color if isinstance(self.color,basestring) else COLOR[i])
-         i += 1
+
+         # Keep track of markers and labels for legend
+         if self.color is not None:
+            markers_options = dict(marker='o', linewidth=0, mfc=COLOR[i], mec=COLOR[i])
+            if "alpha" in relation.styles:
+               markers_options.update(alpha=relation.styles["alpha"])
+            markers.append(plt.Line2D([],[], **markers_options))
+            marker_labels.append(key)
 
          if self.size is not None:
             if isinstance(self.size, int) or isinstance(self.size, float):
@@ -211,33 +285,76 @@ class Plot(object):
             y = [r[self.y.name] for r in row],
             options = options
          ))
+         i += 1
 
-      for subplot in subplots:
-         ax.scatter(subplot['x'], subplot['y'], **subplot['options'])
+      [ax.scatter(p['x'], p['y'], **p['options']) for p in subplots]
+
+      if self.color is not None and self.markers_and_labels is None:
+         self.markers_and_labels = (markers, marker_labels)
 
 
-   def plotCorrelation(self, relation, ax):
-      subplots = []
-      rows = self.data._rows_
+   def plotCorrelation(self, relation, ax, rows):
       options = {}
       options.update(relation.styles)
-
       x = [ r[self.x.name] for r in rows ]
       y = [ r[self.y.name] for r in rows ]
-      slope, const = np.linalg.lstsq(np.vstack([x, np.ones(len(x))]).T, y)[0]
-
-      ax.plot(x, np.array(x)*slope + const, **options)
+      if len(x) > 0 and len(y) > 0:
+         slope, const = np.linalg.lstsq(np.vstack([x, np.ones(len(x))]).T, y)[0]
+         ax.plot(x, np.array(x)*slope + const, **options)
 
 
    def plot(self):
-      plots = dict(Pair=self.plotPair, Correlate=self.plotCorrelation)
-      self.figure, ax = plt.subplots()
+      if self.xy is None:
+         raise Exception("Must define relationships between x and y variables (xy).")
+
+      xx = self.xx.name if self.xx is not None else None
+      yy = self.yy.name if self.yy is not None else None
+      m, n, rows = plot.data.select(xx, yy)
+      self.figure, axarr = plt.subplots(m or 1, n or 1, sharex=True, sharey=True)
+
+      if not hasattr(axarr, '__iter__'):
+         self.plot_axis(axarr, rows)
+         axarr.set_xlabel(self.x.name)
+         axarr.set_ylabel(self.y.name)
+      else:
+         for k, key in enumerate(sorted(rows.keys())):
+            if isinstance(key, tuple):
+               idx = (k/n, k%n)
+               xx_label, yy_label = '%s = %s'%(self.xx.name,key[1]), '%s = %s'%(self.yy.name,key[0])
+            else:
+               idx = k
+               xx_label = '%s = %s'%(self.xx.name,key) if self.xx is not None else None
+               yy_label = '%s = %s'%(self.yy.name,key) if self.yy is not None else None
+
+            self.plot_axis(axarr[idx], rows[key])
+            axarr[idx].set_xlim(*self.xrange)
+            axarr[idx].set_ylim(*self.yrange)
+            if k<n:
+               axarr[idx].text(0.5, 1.03, xx_label, ha='center', va='bottom', rotation=0, transform=axarr[idx].transAxes)
+            if n==0 or (m>0 and (k+1)%n==0):
+               axarr[idx].text(1.03, 0.5, yy_label, ha='left', va='center', rotation=270, transform=axarr[idx].transAxes)
+
+         self.figure.subplots_adjust(hspace=0, wspace=0)
+
+         # give one label for all subplots sharing same axis
+         adj_for_leg = 0 if self.markers_and_labels is None else 0.0365
+         self.figure.text(0.5-adj_for_leg,0.05,self.x.name, ha='center', va='top')
+         self.figure.text(0.05,0.5,self.y.name, ha='left', va='center', rotation='vertical')
+
+      # plot legend
+      if self.markers_and_labels is not None:
+         self.figure.subplots_adjust(right=0.8)
+         self.figure.legend(*self.markers_and_labels, loc="center right", numpoints=1, bbox_to_anchor=(1, 0.5))
+
+      plt.show()
+
+
+   def plot_axis(self, ax, rows):
       for relation in self.xy:
-         plot_func = plots.get(relation.name)
+         plot_func = self.plot_func.get(relation.name)
          if plot_func is None:
             raise Exception("Unknown relation", relation.name)
-         plot_func(relation, ax)
-      plt.show()
+         plot_func(relation, ax, rows)
 
 #---------------------------------------------------------------------------------
 # read a delimited file and return a plot referenced to "data" based on this file
@@ -268,12 +385,12 @@ def read(filename, sep=None, header=None, skip_header=0):
 # print sys.__stdin__.isatty()
 
 if __name__ == '__main__':
-   plot = read("datasets/iris.csv")
-   plot.x = Var("Petal.Length")
-   plot.y = Var("Petal.Width")
-   plot.color = Var("Species")
-   plot.xy = Pair(), Correlate()
+   plot = read("datasets/mpg.csv")
+   print plot.data.keys()
+   plot.x = Var("cty")
+   plot.y = Var("hwy")
+   plot.xx = Var("cyl")
+   plot.yy = Var("drv")
+   plot.color = Var("year")
+   plot.xy = Pair() #, Correlate(), Categorize()
    plot.plot()
-
-   # plot.size = Var("Sepal.Width", t=lambda x: 10*x*x*x)
-   # plot.xy = Pair(alpha=0.4), Correlate()
