@@ -83,9 +83,9 @@ class Column(list):
 
    def set_type(self):
       if all(isinstance(v, float) for v in self):
-         self.type = 1  # numerical
+         self.type = "Q"
       else:
-         self.type = 2  # categorical
+         self.type = "C"
 
 
 #-----------------------------------------------------------------------------
@@ -173,43 +173,38 @@ class Correlate(Relationship):
 class Plot(object):
    def __init__(self, data):
       self.data = data
-      self.x = self.y = self.xx = self.yy = self.xy = self.color = self.size = self.shape = None
+      self.x = self.y = self.xx = self.yy = self.xy = self.group = self.size = self.shape = None
       self.figure = None
       self.styles = {}
-      self.plot_func = dict(Pair=self.plotPair, Correlate=self.plotCorrelation)
       self.markers_and_labels = None
+      self.plot_func = dict(QQ=self.qq_plot, CQ=self.cq_plot, CC=self.cc_plot)
 
    def __getattribute__(self, name):
       return object.__getattribute__(self, name)
 
+   def compute_range(self, values):
+      if values.type == "Q":
+         r = min(values), max(values)
+         buffer = 0.1 * abs(r[1]-r[0])
+         return r[0]-buffer, r[1]+buffer
+
    def __setattr__(self, name, value):
       if value is not None:
          if name == 'x':
-            self.xrange = min(self.data[value.name]), max(self.data[value.name])
-            inc = abs(self.xrange[1] - self.xrange[0]) * 0.1
-            self.xrange = self.xrange[0]-inc, self.xrange[1]+inc
+            self.xrange = self.compute_range(self.data[value.name])
 
          if name == 'y':
-            self.yrange = min(self.data[value.name]), max(self.data[value.name])
-            inc = abs(self.yrange[1] - self.yrange[0]) * 0.1
-            self.yrange = self.yrange[0]-inc, self.yrange[1]+inc
-
-         if name == 'xy':
-            if not (isinstance(value, tuple) or isinstance(value, list)):
-               value = (value, )
-            for v in value:
-               if v.name == "Pair":
-                  x = self.data[self.x.name]
-                  y = self.data[self.y.name]
-                  if x.type!=1 or y.type!=1:
-                     raise Exception("%s (type %s) and %s (type %s) must be numerical data" %
-                        (self.x.name, x.type, self.y.name, y.type))
+            self.yrange = self.compute_range(self.data[value.name])
 
          if name=='size':
             if not (isinstance(value,int) or isinstance(value,float) or isinstance(value,Var)):
                raise Exception("Size must be a number or a Var() instance.", value)
             if 't' not in value:
                value['t'] = lambda x: x   # default transformation is identity
+
+         if name=='group' and len(set(self.data[value.name])) > len(COLOR):
+            raise Exception("Not enough colors (%d) to assign to %d different groups." %
+               (len(COLOR), len(set(self.data[value.name]))))
 
       object.__setattr__(self, name, value)
 
@@ -232,36 +227,46 @@ class Plot(object):
       res = {}
       for row in rows:
          if row[key] not in res:
-            res[row[key]] = []
+            res[row[key]] = [row]
          else:
             res[row[key]].append(row)
       return res
 
+   def establish_xy_relationship(self, forced=False):
+      if self.xy is None or forced:
+         xtype = self.data[self.x.name].type if self.x is not None else '_'
+         ytype = self.data[self.y.name].type if self.y is not None else '_'
+         self.xy = xtype + ytype
 
    def prepare_legend(self):
       self.legend_adj = [0,0]
-      if isinstance(self.color, Var):
+      if isinstance(self.group, Var):
          self.legend_adj[0] = 0.0365
-         self.legend_labels = sorted(set(self.data[self.color.name]))
+         self.legend_labels = sorted(set(self.data[self.group.name]))
          self.color_map = { c:COLOR[i] for i,c in enumerate(self.legend_labels) }
          self.legend_markers = [
             plt.Line2D([],[], marker='o', linewidth=0, mfc=COLOR[i], mec=COLOR[i]) for i in range(len(self.legend_labels))
          ]
 
    def set_legend(self):
-      if isinstance(self.color, Var):
+      if isinstance(self.group, Var):
          self.figure.subplots_adjust(right=0.8)
          self.figure.legend(self.legend_markers, self.legend_labels, loc="center right", numpoints=1, bbox_to_anchor=(1, 0.5))
 
-   def plotPair(self, relation, ax, rows):
-      groups = []
-      if isinstance(self.color, Var):
-         split_rows = self.split_rows_by_key(self.color.name, rows)
+
+   def split_rows_into_groups(self, rows):
+      groups, group_options = [], []
+
+      if isinstance(self.group, Var):
+         split_rows = self.split_rows_by_key(self.group.name, rows)
       else:
          split_rows = {None : rows}
 
       for key, row in split_rows.items():
-         options = dict(color = self.color if isinstance(self.color,basestring) else self.color_map[key])
+         options = dict()
+         if self.group is not None:
+            options.update(color = self.color_map[key])
+
          if self.size is not None:
             if isinstance(self.size, int) or isinstance(self.size, float):
                options['s'] = self.size
@@ -269,11 +274,100 @@ class Plot(object):
                options['s'] = [self.size['t'](r[self.size.name]) for r in row]
 
          options.update(self.styles)
-         options.update(relation.styles)
-         groups.append(dict(x=[r[self.x.name] for r in row], y=[r[self.y.name] for r in row], options=options))
+         groups.append(row)
+         group_options.append(options)
 
-      [ax.scatter(p['x'], p['y'], **p['options']) for p in groups]
+      return groups, group_options
 
+
+   def qq_plot(self):
+      m, n, rows = self.split_data_xx_yy()
+      self.figure, axarr = plt.subplots(m, n, sharex=True, sharey=True, squeeze=False)
+      self.prepare_legend()
+      for k, grid_id in enumerate(sorted(rows.keys())):
+         idx = (k/n, k%n)
+         xx_label = '%s = %s'%(self.xx.name,grid_id[1]) if self.xx is not None else ''
+         yy_label = '%s = %s'%(self.yy.name,grid_id[0]) if self.yy is not None else ''
+         if k<n:
+            axarr[idx].text(0.5, 1.03, xx_label, ha='center', va='bottom', rotation=0, transform=axarr[idx].transAxes)
+         if (k+1)%n==0:
+            axarr[idx].text(1.03, 0.5, yy_label, ha='left', va='center', rotation=270, transform=axarr[idx].transAxes)
+         self.figure.subplots_adjust(hspace=0, wspace=0)
+         self.figure.text(0.5-self.legend_adj[0], 0.05, self.x.name, ha='center', va='top')
+         self.figure.text(0.05, 0.5-self.legend_adj[1], self.y.name, ha='left', va='center', rotation='vertical')
+
+         axarr[idx].set_xlim(*self.xrange)
+         axarr[idx].set_ylim(*self.yrange)
+         groups, group_options = self.split_rows_into_groups(rows[grid_id])
+         for i in range(len(groups)):
+            x = [r[self.x.name] for r in groups[i]]
+            y = [r[self.y.name] for r in groups[i]]
+            axarr[idx].scatter(x,y, **group_options[i])
+
+      self.set_legend()
+      plt.show()
+
+
+   # todo: hbar
+   def cq_plot(self):
+      m, n, rows = self.split_data_xx_yy()
+      self.figure, axarr = plt.subplots(m, n, sharex=True, sharey=True, squeeze=False)
+      self.prepare_legend()
+      rmin, rmax = 0, 0
+      spacing = 0.2
+      cvar, qvar = (self.x, self.y)
+      # cvar, qvar = (self.x, self.y) if self.data[self.x.name].type == 'C' else (self.y, self.x)
+
+      for k, grid_id in enumerate(sorted(rows.keys())):
+         idx = (k/n, k%n)
+         xx_label = '%s = %s'%(self.xx.name,grid_id[1]) if self.xx is not None else ''
+         yy_label = '%s = %s'%(self.yy.name,grid_id[0]) if self.yy is not None else ''
+         if k<n:
+            axarr[idx].text(0.5, 1.03, xx_label, ha='center', va='bottom', rotation=0, transform=axarr[idx].transAxes)
+         if (k+1)%n==0:
+            axarr[idx].text(1.03, 0.5, yy_label, ha='left', va='center', rotation=270, transform=axarr[idx].transAxes)
+         self.figure.subplots_adjust(hspace=0, wspace=0)
+         self.figure.text(0.5-self.legend_adj[0], 0.05, self.x.name, ha='center', va='top')
+         self.figure.text(0.05, 0.5-self.legend_adj[1], self.y.name, ha='left', va='center', rotation='vertical')
+
+         groups, group_options = self.split_rows_into_groups(rows[grid_id])
+
+         bar_width = (1.0 - spacing) /float(len(groups))
+         for i,g in enumerate(groups):
+            subgroups = self.split_rows_by_key(cvar.name, g)
+            index = [ j + i*bar_width for j in range(len(subgroups)) ]
+            keys = sorted(subgroups.keys())
+            values = [sum(r[qvar.name] for r in subgroups[k]) if k in subgroups else 0 for k in keys]
+            axarr[idx].bar(index, values, bar_width, **group_options[i])
+
+         if qvar == self.y:
+            rmin, rmax = min(rmin, axarr[idx].get_ybound()[0]), max(rmax, axarr[idx].get_ybound()[1])
+         else:
+            rmin, rmax = min(rmin, axarr[idx].get_xbound()[0]), max(rmax, axarr[idx].get_xbound()[1])
+
+      labels = sorted(set(self.data[cvar.name]))
+      ticks = [ i+(1.0-spacing)*0.5 for i in range(len(labels))]
+
+      for k, key in enumerate(sorted(rows.keys())):
+         idx = (k/n, k%n)
+         if qvar == self.y:
+            axarr[idx].set_ybound(rmin, rmax)
+            axarr[idx].set_xticks(ticks)
+            axarr[idx].set_xticklabels(labels)
+            axarr[idx].set_xbound(0-spacing)
+         else:
+            axarr[idx].set_xbound(rmin, rmax)
+            axarr[idx].set_yticks(ticks)
+            axarr[idx].set_yticklabels(labels)
+            axarr[idx].set_ybound(0-spacing)
+
+      self.set_legend()
+      plt.show()
+
+
+
+   def cc_plot(self, ax, rows):
+      pass
 
    def plotCorrelation(self, relation, ax, rows):
       options = {}
@@ -284,46 +378,14 @@ class Plot(object):
          slope, const = np.linalg.lstsq(np.vstack([x, np.ones(len(x))]).T, y)[0]
          ax.plot(x, np.array(x)*slope + const, **options)
 
-
    def plot(self):
-      if self.xy is None:
-         raise Exception("Must define relationships between x and y variables (xy).")
+      self.establish_xy_relationship()
+      plot_func = self.plot_func.get(self.xy)
+      if hasattr(plot_func, '__call__'):
+         plot_func()
 
-      '''
-         Split data into the grid defined by xx and yy
-         Plot each plot in the grid sequentially
-      '''
-      m, n, rows = plot.split_data_xx_yy()
-      self.figure, axarr = plt.subplots(m, n, sharex=True, sharey=True, squeeze=False)
-      self.prepare_legend()
-      for k, key in enumerate(sorted(rows.keys())):
-         idx = (k/n, k%n)
-         xx_label = '%s = %s'%(self.xx.name,key[1]) if self.xx is not None else ''
-         yy_label = '%s = %s'%(self.yy.name,key[0]) if self.yy is not None else ''
 
-         self.plot_axis(axarr[idx], rows[key])
-         axarr[idx].set_xlim(*self.xrange)
-         axarr[idx].set_ylim(*self.yrange)
-         if k<n:
-            axarr[idx].text(0.5, 1.03, xx_label, ha='center', va='bottom', rotation=0, transform=axarr[idx].transAxes)
-         if (k+1)%n==0:
-            axarr[idx].text(1.03, 0.5, yy_label, ha='left', va='center', rotation=270, transform=axarr[idx].transAxes)
 
-         self.figure.subplots_adjust(hspace=0, wspace=0)
-         # give one label for all subplots sharing same axis
-         self.figure.text(0.5-self.legend_adj[0], 0.05, self.x.name, ha='center', va='top')
-         self.figure.text(0.05, 0.5-self.legend_adj[1], self.y.name, ha='left', va='center', rotation='vertical')
-
-      self.set_legend()
-      plt.show()
-
-   # to do: divide relations into those that do & do not depend on colors
-   def plot_axis(self, ax, rows):
-      for relation in self.xy:
-         plot_func = self.plot_func.get(relation.name)
-         if plot_func is None:
-            raise Exception("Unknown relation", relation.name)
-         plot_func(relation, ax, rows)
 
 #---------------------------------------------------------------------------------
 # read a delimited file and return a plot referenced to "data" based on this file
@@ -353,15 +415,37 @@ def read(filename, sep=None, header=None, skip_header=0):
 # import sys
 # print sys.__stdin__.isatty()
 
-if __name__ == '__main__':
-   plot = read("datasets/mpg.csv")
-   print plot.data.keys()
+def test_scatter():
+   plot = read("data/mpg.csv"); print plot.data.keys()
    plot.x = Var("cty")
    plot.y = Var("hwy")
    plot.xx = Var("cyl")
    plot.yy = Var("drv")
-   plot.color = Var("class")
-   plot.xy = Pair(alpha=0.5)#, Correlate()
+   plot.group = Var("class")
    # plot.size = Var("cyl", t=lambda x: x**3)
    plot.plot()
+
+
+def test_bar():
+   plot = read('data/iris.csv'); print plot.data.keys()
+   plot.x = Var('Species')
+   plot.y = Var('Petal.Length')
+   plot.plot()
+
+def test_bar2():
+   plot = read("data/mtcars.csv"); print plot.data.keys()
+   plot.x = Var("cyl")
+   plot.y = Var("mpg")
+   plot.group = Var("gear")
+   plot.xy = "CQ"
+   plot.plot()
+
+if __name__ == '__main__':
+   test_bar()
+   # test_scatter()
+
+   '''
+   plot.group_by("class", "somedimension_for_shape")
+   plot.separate_by("cyl", None)
+   '''
 
