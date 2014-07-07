@@ -177,7 +177,7 @@ class Plot(object):
       self.figure = None
       self.styles = {}
       self.markers_and_labels = None
-      self.plot_func = dict(QQ=self.qq_plot, CQ=self.cq_plot, CC=self.cc_plot)
+      self.plot_func = dict(QQ=self.qq_plot, CQ=self.cq_plot, QC=self.cq_plot, CC=self.cc_plot)
 
    def __getattribute__(self, name):
       return object.__getattribute__(self, name)
@@ -308,15 +308,13 @@ class Plot(object):
       plt.show()
 
 
-   # todo: hbar
    def cq_plot(self):
       m, n, rows = self.split_data_xx_yy()
       self.figure, axarr = plt.subplots(m, n, sharex=True, sharey=True, squeeze=False)
       self.prepare_legend()
       rmin, rmax = 0, 0
       spacing = 0.2
-      cvar, qvar = (self.x, self.y)
-      # cvar, qvar = (self.x, self.y) if self.data[self.x.name].type == 'C' else (self.y, self.x)
+      cvar, qvar = (self.x, self.y) if self.data[self.x.name].type == 'C' else (self.y, self.x)
 
       for k, grid_id in enumerate(sorted(rows.keys())):
          idx = (k/n, k%n)
@@ -338,9 +336,12 @@ class Plot(object):
             index = [ j + i*bar_width for j in range(len(subgroups)) ]
             keys = sorted(subgroups.keys())
             values = [sum(r[qvar.name] for r in subgroups[k]) if k in subgroups else 0 for k in keys]
-            axarr[idx].bar(index, values, bar_width, **group_options[i])
+            if cvar.name == self.x.name:
+               axarr[idx].bar(index, values, bar_width, **group_options[i])
+            else:
+               axarr[idx].barh(index, values, bar_width, **group_options[i])
 
-         if qvar == self.y:
+         if qvar.name == self.y.name:
             rmin, rmax = min(rmin, axarr[idx].get_ybound()[0]), max(rmax, axarr[idx].get_ybound()[1])
          else:
             rmin, rmax = min(rmin, axarr[idx].get_xbound()[0]), max(rmax, axarr[idx].get_xbound()[1])
@@ -350,16 +351,16 @@ class Plot(object):
 
       for k, key in enumerate(sorted(rows.keys())):
          idx = (k/n, k%n)
-         if qvar == self.y:
+         if qvar.name == self.y.name:
             axarr[idx].set_ybound(rmin, rmax)
             axarr[idx].set_xticks(ticks)
             axarr[idx].set_xticklabels(labels)
-            axarr[idx].set_xbound(0-spacing)
+            axarr[idx].set_xbound(0-spacing, len(ticks))
          else:
             axarr[idx].set_xbound(rmin, rmax)
             axarr[idx].set_yticks(ticks)
             axarr[idx].set_yticklabels(labels)
-            axarr[idx].set_ybound(0-spacing)
+            axarr[idx].set_ybound(0-spacing, len(ticks))
 
       self.set_legend()
       plt.show()
@@ -384,11 +385,6 @@ class Plot(object):
       if hasattr(plot_func, '__call__'):
          plot_func()
 
-
-
-
-#---------------------------------------------------------------------------------
-# read a delimited file and return a plot referenced to "data" based on this file
 #---------------------------------------------------------------------------------
 
 def read(filename, sep=None, header=None, skip_header=0):
@@ -411,6 +407,7 @@ def read(filename, sep=None, header=None, skip_header=0):
 
    return Plot(Data(header or rows.pop(0), rows))
 
+
 #---------------------------------------------------------------------------------
 # import sys
 # print sys.__stdin__.isatty()
@@ -424,14 +421,25 @@ def test_scatter():
    plot.group = Var("class")
    # plot.size = Var("cyl", t=lambda x: x**3)
    plot.plot()
+   '''
+   data = read("data/mpg.csv")
+   data.set(x="cty", y="hwy", xx="cyl", yy="drv", group="class")
+   data.xy.annotation = "correlation", "xhistogram", "yhistogram", lambda (x): 3*x+10
 
+
+   data = read("data/mpg.csv")
+   data.set(x='cty', y='hwy', xy='continuous')
+   '''
 
 def test_bar():
    plot = read('data/iris.csv'); print plot.data.keys()
    plot.x = Var('Species')
    plot.y = Var('Petal.Length')
    plot.plot()
-
+   '''
+   data = read('data/iris.csv')
+   data.set(x='Species', y='Petal.Length', xy='quartiles')  #boxplot
+   '''
 def test_bar2():
    plot = read("data/mtcars.csv"); print plot.data.keys()
    plot.x = Var("cyl")
@@ -439,13 +447,34 @@ def test_bar2():
    plot.group = Var("gear")
    plot.xy = "CQ"
    plot.plot()
+   '''
+   data.set(x="cyl", y="mpg", group="gear")
+   print data
+   data.x.type = "categorical"
+   data.plot()
+   '''
 
+def test_bar3():
+   p = read("data/tips.csv"); print p.data.keys()
+   p.x = Var("sex")
+   p.y = Var("total_bill")
+   p.yy = Var("time")
+   p.xx = Var("day")
+   p.plot()
+   '''
+   data.set(x="sex", y="total_bill", xx="day", yy="time")
+   data.plot()
+   '''
+'''
+xy plot types:
+   - QQ: discrete (scatter), continuous (line), density (kde), compare (qq plot)
+   - CQ: count (bar/histogram), sum (bar), average (mean+stdev point), quartiles (boxplot), density (density)
+   - CC: count (heatmap)
+xy.styles.update(shape="hexagon")
+'''
+# support plot types: scatter, line, bar, histogram, boxplot, kde, violin
+# todo: redesign interface and data access; e.g. data.x.type = 'categorical'; data.xy = "continuous"
+# data.set(x='sex', y='total_bill', xx='time', group='time')
 if __name__ == '__main__':
-   test_bar()
+   test_bar3()
    # test_scatter()
-
-   '''
-   plot.group_by("class", "somedimension_for_shape")
-   plot.separate_by("cyl", None)
-   '''
-
