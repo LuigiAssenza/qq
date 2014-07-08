@@ -9,6 +9,10 @@ import numpy as np
 import math
 from utils import *
 
+from matplotlib import style
+style.use('ggplot')
+color = Color()
+
 #---------------------------------------------------------------------------------
 # read a delimited file and return a plot referenced to "data" based on this file
 #---------------------------------------------------------------------------------
@@ -129,9 +133,14 @@ class Data(dict):
    def plot(self):
       if self.x is None and self.y is None:
          return
-      if (self.x is None and self.y.type == 'categorical') or \
-         (self.y is None and self.x.type == 'categorical') or \
-         (sorted([self.x.type, self.y.type]) == ['categorical', 'quantitative']):
+      # if (self.x is None and self.y.type == 'categorical') or \
+      #    (self.y is None and self.x.type == 'categorical') or \
+      #    (sorted([self.x.type, self.y.type]) == ['categorical', 'quantitative']):
+      if self.x is None or self.y is None or (sorted([self.x.type, self.y.type]) == ['categorical', 'quantitative']):
+         if self.x is None:
+            self.y.type = 'categorical'
+         if self.y is None:
+            self.x.type = 'categorical'
          p = CQPlot(self)
       elif [self.x.type, self.y.type] == ['quantitative', 'quantitative']:
          p = QQPlot(self)
@@ -184,10 +193,15 @@ class Plot(object):
       if self.data.group is not None:
          self.legend_adj[0] = 0.0365
          self.legend_labels = sorted(set(self.data[self.data.group.name]))
-         self.color_map = { c:COLOR[i] for i,c in enumerate(self.legend_labels) }
+         theme = 'Set1' if len(self.legend_labels) < 10 else 'Paired'
+         colors = color.get('Qualitative', theme, len(self.legend_labels))
+         self.color_map = { c:colors[i] for i,c in enumerate(self.legend_labels) }
          self.legend_markers = [
-            plt.Line2D([],[], marker='o', linewidth=0, mfc=COLOR[i], mec=COLOR[i]) for i in range(len(self.legend_labels))
+            plt.Line2D([],[], marker='o', linewidth=0, mfc=colors[i], mec=colors[i]) for i in range(len(self.legend_labels))
          ]
+      else:
+         colors = color.get('Qualitative', 'Set1', 1)
+         self.color_map = { None : colors[0] }
 
    def set_legend(self):
       if self.data.group is not None:
@@ -197,8 +211,7 @@ class Plot(object):
 
    def update_plot_options(self, groups, options):
       for k, group in groups.items():
-         if self.data.group is not None:
-            options[k].update(color = self.color_map[k])
+         options[k].update(color = self.color_map[k])
 
          if self.data.size is not None:
             if isinstance(self.data.size, int) or isinstance(self.data.size, float):
@@ -218,14 +231,14 @@ class Plot(object):
          xx_label = '%s = %s'%(data.xx.name,grid_id[1]) if data.xx is not None else ''
          yy_label = '%s = %s'%(data.yy.name,grid_id[0]) if data.yy is not None else ''
          if k<self.n:
-            self.axarr[idx].text(0.5, 1.03, xx_label, ha='center', va='bottom', rotation=0, transform=self.axarr[idx].transAxes)
+            self.axarr[idx].text(0.5, 1.05, xx_label, ha='center', va='bottom', rotation=0, transform=self.axarr[idx].transAxes)
          if (k+1)%self.n==0:
-            self.axarr[idx].text(1.03, 0.5, yy_label, ha='left', va='center', rotation=270, transform=self.axarr[idx].transAxes)
+            self.axarr[idx].text(1.05, 0.5, yy_label, ha='left', va='center', rotation=270, transform=self.axarr[idx].transAxes)
          self.figure.subplots_adjust(hspace=0, wspace=0)
          if data.x is not None:
             self.figure.text(0.5-self.legend_adj[0], 0.05, data.x.name, ha='center', va='top')
          if data.y is not None:
-            self.figure.text(0.05, 0.5-self.legend_adj[1], data.y.name, ha='left', va='center', rotation='vertical')
+            self.figure.text(0.04, 0.5-self.legend_adj[1], data.y.name, ha='left', va='center', rotation='vertical')
 
          _, groups = split_rows_by_col(self.rows[grid_id], data.group)
          options =  { k : {} for k in groups }
@@ -276,25 +289,35 @@ class CQPlot(Plot):
    def precompute(self):
       self.spacing = 0.2
       self.rmin, self.rmax = 0, 0
-      self.cvar, self.qvar = (self.data.x, self.data.y) if self.data.x.type == 'categorical' else (self.data.y, self.data.x)
+      if self.data.x is None:
+         self.cvar, self.qvar = self.data.y, self.data.x
+      elif self.data.y is None:
+         self.cvar, self.qvar = self.data.x, self.data.y
+      elif self.data.x.type == 'categorical' and self.data.y.type == 'quantitative':
+         self.cvar, self.qvar = self.data.x, self.data.y
+      elif self.data.x.type == 'quantitative' and self.data.y.type == 'categorical':
+         self.cvar, self.qvar = self.data.y, self.data.x
+      else:
+         raise Exception("unsupported")
 
    def postcompute(self):
       labels = sorted(set(self.cvar))
       ticks = [ i+(1.0-self.spacing)*0.5 for i in range(len(labels))]
-
       for k, key in enumerate(sorted(self.rows)):
          idx = (k/self.n, k%self.n)
 
-         if self.data.y is None or self.qvar.name == self.data.y.name:
+         if self.data.y is self.qvar:
             self.axarr[idx].set_ybound(self.rmin, self.rmax)
             self.axarr[idx].set_xticks(ticks)
             self.axarr[idx].set_xticklabels(labels)
             self.axarr[idx].set_xbound(0-self.spacing, len(ticks))
-         elif self.data.x is None or self.qvar.name == self.data.x.name:
+         elif self.data.x is self.qvar:
             self.axarr[idx].set_xbound(self.rmin, self.rmax)
             self.axarr[idx].set_yticks(ticks)
             self.axarr[idx].set_yticklabels(labels)
             self.axarr[idx].set_ybound(0-self.spacing, len(ticks))
+         else:
+            raise Exception("Unsupported")
 
    def plot_groups(self, idx, groups, options):
       bar_width = (1.0 - self.spacing) /float(len(groups))
@@ -304,15 +327,17 @@ class CQPlot(Plot):
          index = [ j + i*bar_width for j in range(len(subgroups)) ]
          keys = sorted(subgroups.keys())
          values = [sum(r[self.qvar.name] if self.qvar is not None else 1 for r in subgroups[k]) if k in subgroups else 0 for k in keys]
-         if self.cvar.name == self.data.x.name:
+         if self.data.x is self.cvar:
             self.axarr[idx].bar(index, values, bar_width, **options[key])
-         else:
+         elif self.data.y is self.cvar:
             self.axarr[idx].barh(index, values, bar_width, **options[key])
          i += 1
 
-      if self.data.y is None or self.qvar.name == self.data.y.name:
+      if self.data.y is self.qvar:
          self.rmin, self.rmax = min(self.rmin, self.axarr[idx].get_ybound()[0]), max(self.rmax, self.axarr[idx].get_ybound()[1])
-      elif self.data.x is None or self.qvar.name == self.data.x.name:
+      elif self.data.x is self.qvar:
          self.rmin, self.rmax = min(self.rmin, self.axarr[idx].get_xbound()[0]), max(self.rmax, self.axarr[idx].get_xbound()[1])
+      else:
+         raise Exception("Unsupported")
 
 #-----------------------------------------------------------------------------
