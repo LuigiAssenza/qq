@@ -204,6 +204,16 @@ class Plot(object):
       self.styles = {}
       self.markers_and_labels = None
 
+   def get_sequential_colors(self):
+      # Linearly interpolate alpha between alpha_min and alpha_max based on quantitative labels
+      m, M = min(self.legend_labels), max(self.legend_labels)
+      alpha_min, alpha_max = 0.3, 1.0
+      alphas = [ alpha_min*(M-v)/(M-m) + alpha_max*(v-m)/(M-m) for v in self.legend_labels ]
+
+      # Combine interpolated alphas with a predefined color (e.g. blue)
+      blue = (5/255.0, 112/255.0, 176/255.0)
+      return [ (blue[0], blue[1], blue[2], a) for a in alphas ]
+
    def prepare_legend(self):
       self.legend_adj = [0,0]
       if self.data.group is not None:
@@ -212,9 +222,8 @@ class Plot(object):
 
          # set color theme
          if self.data.group.type > 0 and qq_type(self.data.x, self.data.y):
-            min_alpha = 0.3
-            w = (1-min_alpha)/(len(self.legend_labels)-1.0)
-            colors = [ (5/255.0,112/255.0,176/255.0, min_alpha+i*w) for i in range(len(self.legend_labels)) ]
+            # Adjusting alpha for different groups (when group type is quantitative)
+            colors = self.get_sequential_colors()
          else:
             if len(self.legend_labels) > 9:
                raise Exception("Too many colors.")
