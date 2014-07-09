@@ -222,7 +222,6 @@ class Plot(object):
 
          # set color theme
          if self.data.group.type > 0 and qq_type(self.data.x, self.data.y):
-            # Adjusting alpha for different groups (when group type is quantitative)
             colors = self.get_sequential_colors()
          else:
             if len(self.legend_labels) > 9:
@@ -231,8 +230,7 @@ class Plot(object):
          self.color_map = { c:colors[i] for i,c in enumerate(self.legend_labels) }
 
          self.legend_markers = [
-            plt.Line2D([],[], marker='o', linewidth=0, mfc=colors[i], mec=colors[i]) for i in range(len(self.legend_labels))
-         ]
+            plt.Line2D([],[], marker='o', linewidth=0, mfc=self.color_map[v], mec=self.color_map[v]) for v in self.legend_labels ]
       else:
          colors = color.get('Qualitative', 'Set1', 1)
          self.color_map = { None : colors[0] }
@@ -240,7 +238,8 @@ class Plot(object):
    def set_legend(self):
       if self.data.group is not None:
          self.figure.subplots_adjust(right=0.8)
-         self.figure.legend(self.legend_markers, self.legend_labels, loc="center right", numpoints=1, bbox_to_anchor=(1, 0.5))
+         self.figure.legend(self.legend_markers, self.legend_labels, loc="center right", \
+            title=self.data.group.name, numpoints=1, bbox_to_anchor=(1, 0.5))
 
 
    def update_plot_options(self, groups, options):
@@ -304,8 +303,8 @@ class QQPlot(Plot):
          x = [r[self.data.x.name] for r in g]
          y = [r[self.data.y.name] for r in g]
          options[key]['marker'] = 'o'
+         options[key]['color'] = [options[key]['color']] * len(x)
          if self.data.xy == 'discrete':
-            options[key]['color'] = [options[key]['color']] * len(x)
             self.axarr[idx].scatter(x,y, **options[key])
          elif self.data.xy == 'sequential':
             options[key]['marker'] = None
