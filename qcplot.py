@@ -38,17 +38,40 @@ def read(filename, sep=None, header=None, skip_header=0):
    return Data(header or rows.pop(0), rows)
 
 #-----------------------------------------------------------------------------
+#  0 - categorical (type str)
+#  1 - discrete quantitative  (type int)
+#  2 - continuous quantitative (type float)
+#-----------------------------------------------------------------------------
+
 class Column(list):
    def __init__(self, name=None):
       self.name = name
-      self.type = None
+      self.type = 0   # default is type str, categorical
 
    def set_type(self):
-      if all(isinstance(v, float) for v in self):
-         self.type = "quantitative"
-      else:
-         self.type = "categorical"
+      if all(isinstance(v, int) for v in self):
+         self.type = 1
+      elif all((isinstance(v,int) or isinstance(v,float)) for v in self):
+         self.type = 2
 
+
+#-----------------------------------------------------------------------------
+#  0 - categorical (type str)
+#  1 - discrete quantitative  (type int)
+#  2 - continuous quantitative (type float)
+#-----------------------------------------------------------------------------
+
+def qq_type(col1, col2):
+   if col1 is None or col2 is None:
+      return False
+   return col1.type * col2.type > 0
+
+def cq_type(col1, col2):
+   if col1 is None and col2 is None:
+      return False
+   if col1 is None or col2 is None:
+      return True
+   return col1.type * col2.type == 0
 
 #-----------------------------------------------------------------------------
 class Row(dict):
@@ -79,7 +102,7 @@ class Data(dict):
          row = Row()
          for i,v in enumerate(values):
             name = column_names[i]
-            row[name] = float_or_str(v)
+            row[name] = convert(v)
             self[name].append(row[name])
          self._rows_.append(row)
 
@@ -119,10 +142,10 @@ class Data(dict):
       self.size = self[size] if size in self else size
 
       if self.x is not None and self.y is not None:
-         if self.x.type == 'quantitative' and self.y.type == 'quantitative':
+         if qq_type(self.x, self.y):
             self.xy = xy or 'discrete'
             self.check_xy('qq')
-         elif sorted([self.x.type, self.y.type]) == ['categorical', 'quantitative']:
+         elif cq_type(self.x, self.y):
             self.xy = xy or 'sum'
             self.check_xy('cq')
       else:
@@ -133,16 +156,9 @@ class Data(dict):
    def plot(self):
       if self.x is None and self.y is None:
          return
-      # if (self.x is None and self.y.type == 'categorical') or \
-      #    (self.y is None and self.x.type == 'categorical') or \
-      #    (sorted([self.x.type, self.y.type]) == ['categorical', 'quantitative']):
-      if self.x is None or self.y is None or (sorted([self.x.type, self.y.type]) == ['categorical', 'quantitative']):
-         if self.x is None:
-            self.y.type = 'categorical'
-         if self.y is None:
-            self.x.type = 'categorical'
+      if self.x is None or self.y is None or cq_type(self.x, self.y):
          p = CQPlot(self)
-      elif [self.x.type, self.y.type] == ['quantitative', 'quantitative']:
+      elif qq_type(self.x, self.y):
          p = QQPlot(self)
       else:
          raise Exception("Not Implemented")
@@ -193,9 +209,18 @@ class Plot(object):
       if self.data.group is not None:
          self.legend_adj[0] = 0.0365
          self.legend_labels = sorted(set(self.data[self.data.group.name]))
-         theme = 'Set1' if len(self.legend_labels) < 10 else 'Paired'
-         colors = color.get('Qualitative', theme, len(self.legend_labels))
+
+         # set color theme
+         if self.data.group.type > 0 and qq_type(self.data.x, self.data.y):
+            min_alpha = 0.3
+            w = (1-min_alpha)/(len(self.legend_labels)-1.0)
+            colors = [ (5/255.0,112/255.0,176/255.0, min_alpha+i*w) for i in range(len(self.legend_labels)) ]
+         else:
+            if len(self.legend_labels) > 9:
+               raise Exception("Too many colors.")
+            colors = color.get('Qualitative', 'Set1', len(self.legend_labels))
          self.color_map = { c:colors[i] for i,c in enumerate(self.legend_labels) }
+
          self.legend_markers = [
             plt.Line2D([],[], marker='o', linewidth=0, mfc=colors[i], mec=colors[i]) for i in range(len(self.legend_labels))
          ]
@@ -223,7 +248,6 @@ class Plot(object):
       data = self.data
       self.m, self.n, self.rows = split_rows_by_2cols(data._rows_, data.xx, data.yy)
       self.figure, self.axarr = plt.subplots(self.m, self.n, sharex=True, sharey=True, squeeze=False)
-      # self.figure, self.axarr = plt.subplots(self.m, self.n, squeeze=False)
       self.prepare_legend()
       self.precompute()
       for k, grid_id in enumerate(sorted(self.rows.keys())):
@@ -272,6 +296,7 @@ class QQPlot(Plot):
          y = [r[self.data.y.name] for r in g]
          options[key]['marker'] = 'o'
          if self.data.xy == 'discrete':
+            options[key]['color'] = [options[key]['color']] * len(x)
             self.axarr[idx].scatter(x,y, **options[key])
          elif self.data.xy == 'sequential':
             options[key]['marker'] = None
@@ -289,14 +314,11 @@ class CQPlot(Plot):
    def precompute(self):
       self.spacing = 0.2
       self.rmin, self.rmax = 0, 0
-      if self.data.x is None:
+
+      if self.data.x is None or (self.data.y is not None and self.data.y.type == 0):
          self.cvar, self.qvar = self.data.y, self.data.x
-      elif self.data.y is None:
+      elif self.data.y is None or self.data.x.type == 0:
          self.cvar, self.qvar = self.data.x, self.data.y
-      elif self.data.x.type == 'categorical' and self.data.y.type == 'quantitative':
-         self.cvar, self.qvar = self.data.x, self.data.y
-      elif self.data.x.type == 'quantitative' and self.data.y.type == 'categorical':
-         self.cvar, self.qvar = self.data.y, self.data.x
       else:
          raise Exception("unsupported")
 
