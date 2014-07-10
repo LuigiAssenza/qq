@@ -86,6 +86,7 @@ class Row(dict):
 #
 class Data(dict):
    def __init__(self, header, lines):
+      self.styles = { 'bar_spacing' : 0.2 }
       self._cur_index_ = -1
       column_names = [ clean_string(s) for s in header ]
 
@@ -201,13 +202,12 @@ class Plot(object):
    def __init__(self, data):
       self.data = data
       self.figure = None
-      self.styles = {}
       self.markers_and_labels = None
 
    def get_sequential_colors(self):
       # Linearly interpolate alpha between alpha_min and alpha_max based on quantitative labels
       m, M = min(self.legend_labels), max(self.legend_labels)
-      alpha_min, alpha_max = 0.3, 1.0
+      alpha_min, alpha_max = 0.2, 1.0
       alphas = [ alpha_min*(M-v)/(M-m) + alpha_max*(v-m)/(M-m) for v in self.legend_labels ]
 
       # Combine interpolated alphas with a predefined color (e.g. blue)
@@ -215,9 +215,8 @@ class Plot(object):
       return [ (blue[0], blue[1], blue[2], a) for a in alphas ]
 
    def prepare_legend(self):
-      self.legend_adj = [0,0]
       if self.data.group is not None:
-         self.legend_adj[0] = 0.0365
+         self.data.styles.setdefault('legend', 0.2)
          self.legend_labels = sorted(set(self.data[self.data.group.name]))
 
          # set color theme
@@ -237,7 +236,7 @@ class Plot(object):
 
    def set_legend(self):
       if self.data.group is not None:
-         self.figure.subplots_adjust(right=0.8)
+         self.figure.subplots_adjust(right=1-self.data.styles['legend'])
          self.figure.legend(self.legend_markers, self.legend_labels, loc="center right", \
             title=self.data.group.name, numpoints=1, bbox_to_anchor=(1, 0.5))
 
@@ -269,12 +268,13 @@ class Plot(object):
             self.axarr[idx].text(1.05, 0.5, yy_label, ha='left', va='center', rotation=270, transform=self.axarr[idx].transAxes)
          self.figure.subplots_adjust(hspace=0, wspace=0)
          if data.x is not None:
-            self.figure.text(0.5-self.legend_adj[0], 0.05, data.x.name, ha='center', va='top')
+            # default matplotlib's left offset is .125, right offset is .1
+            self.figure.text(.125+(1-self.data.styles.get('legend',.1)-.125)*.5, 0.05,data.x.name,ha='center',va='top')
          if data.y is not None:
-            self.figure.text(0.04, 0.5-self.legend_adj[1], data.y.name, ha='left', va='center', rotation='vertical')
+            self.figure.text(0.04,.5, data.y.name, ha='left', va='center', rotation='vertical')
 
          _, groups = split_rows_by_col(self.rows[grid_id], data.group)
-         options =  { k : {} for k in groups }
+         options =  { k : dict(alpha=self.data.styles.get('alpha', None)) for k in groups }
          self.update_plot_options(groups, options)
          self.plot_groups(idx, groups, options)
 
@@ -304,7 +304,8 @@ class QQPlot(Plot):
          x = [r[self.data.x.name] for r in g]
          y = [r[self.data.y.name] for r in g]
          options[key]['marker'] = 'o'
-         options[key]['color'] = [options[key]['color']] * len(x)
+         options[key]['facecolors'] = options[key]['edgecolors'] = [options[key]['color']] * len(x)
+         del options[key]['color']
          if self.data.xy == 'discrete':
             self.axarr[idx].scatter(x,y, **options[key])
          elif self.data.xy == 'sequential':
@@ -321,7 +322,6 @@ class CQPlot(Plot):
       super(CQPlot, self).__init__(data)
 
    def precompute(self):
-      self.spacing = 0.2
       self.rmin, self.rmax = 0, 0
 
       if self.data.x is None or (self.data.y is not None and self.data.y.type == 0):
@@ -333,7 +333,7 @@ class CQPlot(Plot):
 
    def postcompute(self):
       labels = sorted(set(self.cvar))
-      ticks = [ i+(1.0-self.spacing)*0.5 for i in range(len(labels))]
+      ticks = [ i+(1.0-self.data.styles['bar_spacing'])*0.5 for i in range(len(labels))]
       for k, key in enumerate(sorted(self.rows)):
          idx = (k/self.n, k%self.n)
 
@@ -341,17 +341,17 @@ class CQPlot(Plot):
             self.axarr[idx].set_ybound(self.rmin, self.rmax)
             self.axarr[idx].set_xticks(ticks)
             self.axarr[idx].set_xticklabels(labels)
-            self.axarr[idx].set_xbound(0-self.spacing, len(ticks))
+            self.axarr[idx].set_xbound(0-self.data.styles['bar_spacing'], len(ticks))
          elif self.data.x is self.qvar:
             self.axarr[idx].set_xbound(self.rmin, self.rmax)
             self.axarr[idx].set_yticks(ticks)
             self.axarr[idx].set_yticklabels(labels)
-            self.axarr[idx].set_ybound(0-self.spacing, len(ticks))
+            self.axarr[idx].set_ybound(0-self.data.styles['bar_spacing'], len(ticks))
          else:
             raise Exception("Unsupported")
 
    def plot_groups(self, idx, groups, options):
-      bar_width = (1.0 - self.spacing) /float(len(groups))
+      bar_width = (1.0 - self.data.styles['bar_spacing']) /float(len(groups))
       i = 0
       for key,g in groups.items():
          _, subgroups = split_rows_by_col(g, self.cvar)
