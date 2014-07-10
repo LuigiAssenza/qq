@@ -216,7 +216,13 @@ class Plot(object):
 
    def prepare_legend(self):
       if self.data.group is not None:
-         self.data.styles.setdefault('legend', 0.2)
+         self.data.styles.setdefault('legend_position', 'right')
+         if self.data.styles['legend_position'] == 'right':
+            self.data.styles.setdefault('legend_space', 0.2)
+            self.data.styles.setdefault('legend_cols', 1)
+         elif self.data.styles['legend_position'] == 'top':
+            self.data.styles.setdefault('legend_space', 0.12)
+            self.data.styles.setdefault('legend_rows', 1)
          self.legend_labels = sorted(set(self.data[self.data.group.name]))
 
          # set color theme
@@ -234,11 +240,16 @@ class Plot(object):
          colors = color.get('Qualitative', 'Set1', 1)
          self.color_map = { None : colors[0] }
 
+
    def set_legend(self):
-      if self.data.group is not None:
-         self.figure.subplots_adjust(right=1-self.data.styles['legend'])
+      if self.data.styles.get('legend_position', None) == 'right':
+         self.figure.subplots_adjust(right=1-self.data.styles['legend_space'])
          self.figure.legend(self.legend_markers, self.legend_labels, loc="center right", \
-            title=self.data.group.name, numpoints=1, bbox_to_anchor=(1, 0.5))
+            title=self.data.group.name, numpoints=1, bbox_to_anchor=(1, 0.5), ncol=self.data.styles['legend_cols'])
+      elif self.data.styles.get('legend_position', None) == 'top':
+         self.figure.subplots_adjust(top=1-self.data.styles['legend_space'])
+         self.figure.legend(self.legend_markers, self.legend_labels,  loc='upper center', numpoints=1, \
+            title=self.data.group.name, bbox_to_anchor=(0.5, 1), ncol=len(self.legend_labels)/self.data.styles['legend_rows'])
 
 
    def update_plot_options(self, groups, options):
@@ -251,6 +262,25 @@ class Plot(object):
             else:
                t = self.data.size.transform
                options[k].update(s = [r[self.data.size.name] if t is None else t(r[self.data.size.name]) for r in group])
+
+
+   def set_axes_title(self):
+      xlabel = self.data.x.name if self.data.x is not None else 'count'
+      ylabel = self.data.y.name if self.data.y is not None else 'count'
+
+      # default matplotlib's left offset is .125, right offset is .1
+      if self.data.styles.get('legend_position',None) == 'right':
+         xlabel_left = .125+(1-self.data.styles.get('legend_space',.1)-.125)*.5
+      else:
+         xlabel_left = .125+(1-.1-.125)*.5
+
+      if self.data.styles.get('legend_position',None) == 'top':
+         ylabel_middle = .1+(1-self.data.styles.get('legend_space',.1)-.1)*.5
+      else:
+         ylabel_middle = .1+(1-.1-.1)*.5
+      self.figure.text(xlabel_left, 0.05, xlabel, ha='center', va='top')
+      self.figure.text(0.04, ylabel_middle, ylabel, ha='left', va='center', rotation='vertical')
+
 
    def plot(self):
       data = self.data
@@ -267,12 +297,8 @@ class Plot(object):
          if (k+1)%self.n==0:
             self.axarr[idx].text(1.05, 0.5, yy_label, ha='left', va='center', rotation=270, transform=self.axarr[idx].transAxes)
          self.figure.subplots_adjust(hspace=0, wspace=0)
-         if data.x is not None:
-            # default matplotlib's left offset is .125, right offset is .1
-            self.figure.text(.125+(1-self.data.styles.get('legend',.1)-.125)*.5, 0.05,data.x.name,ha='center',va='top')
-         if data.y is not None:
-            self.figure.text(0.04,.5, data.y.name, ha='left', va='center', rotation='vertical')
 
+         self.set_axes_title()
          _, groups = split_rows_by_col(self.rows[grid_id], data.group)
          options =  { k : dict(alpha=self.data.styles.get('alpha', None)) for k in groups }
          self.update_plot_options(groups, options)
