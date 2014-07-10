@@ -131,7 +131,7 @@ class Data(dict):
          if self.xy not in ('discrete', 'sequential'):
             raise Exception("Unknown xy type")
       else:
-         if self.xy not in ('count', 'sum', 'average', 'quartiles'):
+         if self.xy not in ('count', 'sum', 'average', 'quartiles', 'distribution'):
             raise Exception("Unknown xy type")
 
    def set(self, x=None, y=None, group=None, size=None, xx=None, yy=None, xy=None):
@@ -349,7 +349,6 @@ class CQPlot(Plot):
 
    def precompute(self):
       self.rmin, self.rmax = 0, 0
-
       if self.data.x is None or (self.data.y is not None and self.data.y.type == 0):
          self.cvar, self.qvar = self.data.y, self.data.x
       elif self.data.y is None or self.data.x.type == 0:
@@ -362,32 +361,41 @@ class CQPlot(Plot):
       ticks = [ i+(1.0-self.data.styles['bar_spacing'])*0.5 for i in range(len(labels))]
       for k, key in enumerate(sorted(self.rows)):
          idx = (k/self.n, k%self.n)
-
-         if self.data.y is self.qvar:
+         if self.data.xy == 'distribution':
             self.axarr[idx].set_ybound(self.rmin, self.rmax)
-            self.axarr[idx].set_xticks(ticks)
-            self.axarr[idx].set_xticklabels(labels)
-            self.axarr[idx].set_xbound(0-self.data.styles['bar_spacing'], len(ticks))
-         elif self.data.x is self.qvar:
-            self.axarr[idx].set_xbound(self.rmin, self.rmax)
-            self.axarr[idx].set_yticks(ticks)
-            self.axarr[idx].set_yticklabels(labels)
-            self.axarr[idx].set_ybound(0-self.data.styles['bar_spacing'], len(ticks))
          else:
-            raise Exception("Unsupported")
+            if self.data.y is self.qvar:
+               self.axarr[idx].set_ybound(self.rmin, self.rmax)
+               self.axarr[idx].set_xticks(ticks)
+               self.axarr[idx].set_xticklabels(labels)
+               self.axarr[idx].set_xbound(0-self.data.styles['bar_spacing'], len(ticks))
+            elif self.data.x is self.qvar:
+               self.axarr[idx].set_xbound(self.rmin, self.rmax)
+               self.axarr[idx].set_yticks(ticks)
+               self.axarr[idx].set_yticklabels(labels)
+               self.axarr[idx].set_ybound(0-self.data.styles['bar_spacing'], len(ticks))
+            else:
+               raise Exception("Unsupported")
 
    def plot_groups(self, idx, groups, options):
       bar_width = (1.0 - self.data.styles['bar_spacing']) /float(len(groups))
       i = 0
       for key,g in groups.items():
-         _, subgroups = split_rows_by_col(g, self.cvar)
-         index = [ j + i*bar_width for j in range(len(subgroups)) ]
-         keys = sorted(subgroups.keys())
-         values = [sum(r[self.qvar.name] if self.qvar is not None else 1 for r in subgroups[k]) if k in subgroups else 0 for k in keys]
-         if self.data.x is self.cvar:
-            self.axarr[idx].bar(index, values, bar_width, **options[key])
-         elif self.data.y is self.cvar:
-            self.axarr[idx].barh(index, values, bar_width, **options[key])
+         if self.data.xy == 'distribution':
+            if self.data.x is None:
+               raise Exception("Must set x variable to plot distributions.")
+            values = [r[self.data.x.name] for r in g]
+            options[key]['normed'] = self.data.styles.get('normed',False)
+            self.axarr[idx].hist(values, self.data.styles.get('bars',10), **options[key])
+         else:
+            _, subgroups = split_rows_by_col(g, self.cvar)
+            index = [ j + i*bar_width for j in range(len(subgroups)) ]
+            keys = sorted(subgroups.keys())
+            values = [sum(r[self.qvar.name] if self.qvar is not None else 1 for r in subgroups[k]) if k in subgroups else 0 for k in keys]
+            if self.data.x is self.cvar:
+               self.axarr[idx].bar(index, values, bar_width, **options[key])
+            elif self.data.y is self.cvar:
+               self.axarr[idx].barh(index, values, bar_width, **options[key])
          i += 1
 
       if self.data.y is self.qvar:
@@ -396,5 +404,6 @@ class CQPlot(Plot):
          self.rmin, self.rmax = min(self.rmin, self.axarr[idx].get_xbound()[0]), max(self.rmax, self.axarr[idx].get_xbound()[1])
       else:
          raise Exception("Unsupported")
+
 
 #-----------------------------------------------------------------------------
