@@ -248,9 +248,10 @@ class Plot(object):
 
          if self.data.size is not None:
             if isinstance(self.data.size, int) or isinstance(self.data.size, float):
-               options[k].update('s', self.data.size)
+               options[k].update(s = self.data.size)
             else:
-               options[k].update('s', [r[self.data.size.name] for r in row])
+               t = self.data.size.transform
+               options[k].update(s = [r[self.data.size.name] if t is None else t(r[self.data.size.name]) for r in group])
 
    def plot(self):
       data = self.data
