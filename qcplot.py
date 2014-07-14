@@ -38,6 +38,11 @@ def read(filename, sep=None, header=None, skip_header=0):
    return Data(header or rows.pop(0), rows)
 
 #-----------------------------------------------------------------------------
+class Row(dict):
+   def __init__(self):
+      pass
+
+#-----------------------------------------------------------------------------
 #  0 - categorical (type str)
 #  1 - discrete quantitative  (type int)
 #  2 - continuous quantitative (type float)
@@ -73,11 +78,19 @@ def cq_type(col1, col2):
       return True
    return col1.type * col2.type == 0
 
-#-----------------------------------------------------------------------------
-class Row(dict):
-   def __init__(self):
-      pass
 
+#-----------------------------------------------------------------------------
+
+class ColumnProp(object):
+   def __init__(self, name):
+      self.name = name
+      self.v = None
+
+   def __get__(self, instance, owner):
+      return self.v
+
+   def __set__(self, instance, value):
+      self.v = instance[value] if value is not None else None
 
 #-----------------------------------------------------------------------------
 
@@ -85,6 +98,13 @@ class Row(dict):
 # iterate through rows, keyed by columns
 #
 class Data(dict):
+   x = ColumnProp('x')
+   y = ColumnProp('y')
+   xx = ColumnProp('xx')
+   yy = ColumnProp('yy')
+   group = ColumnProp('group')
+   size = ColumnProp('size')
+
    def __init__(self, header, lines):
       self.styles = { 'bar_spacing' : 0.2 }
       self._cur_index_ = -1
@@ -112,7 +132,7 @@ class Data(dict):
 
       self.nrow = len(self._rows_)
       self.ncol = len(self.keys())
-
+      self._xy = None
 
    # Iterate through rows
    def __iter__(self):
@@ -126,6 +146,23 @@ class Data(dict):
       else:
          raise StopIteration
 
+   @property
+   def xy(self):
+      return self._xy
+
+   @xy.setter
+   def xy(self, value):
+      if self.x is not None and self.y is not None:
+         if qq_type(self.x, self.y):
+            self._xy = value or 'discrete'
+            self.check_xy('qq')
+         elif cq_type(self.x, self.y):
+            self._xy = value or 'sum'
+            self.check_xy('cq')
+      else:
+         self._xy = value or 'count'
+         self.check_xy('cq')
+
    def check_xy(self, t):
       if t == 'qq':
          if self.xy not in ('discrete', 'sequential'):
@@ -135,24 +172,13 @@ class Data(dict):
             raise Exception("Unknown xy type")
 
    def set(self, x=None, y=None, group=None, size=None, xx=None, yy=None, xy=None):
-      self.x = self[x] if x in self else x
-      self.y = self[y] if y in self else y
-      self.xx = self[xx] if xx in self else xx
-      self.yy = self[yy] if yy in self else yy
-      self.group = self[group] if group in self else group
-      self.size = self[size] if size in self else size
-
-      if self.x is not None and self.y is not None:
-         if qq_type(self.x, self.y):
-            self.xy = xy or 'discrete'
-            self.check_xy('qq')
-         elif cq_type(self.x, self.y):
-            self.xy = xy or 'sum'
-            self.check_xy('cq')
-      else:
-         self.xy = xy or 'count'
-         self.check_xy('cq')
-
+      self.x = x
+      self.y = y
+      self.xx = xx
+      self.yy = yy
+      self.group = group
+      self.size = size
+      self.xy = xy
 
    def plot(self):
       if self.x is None and self.y is None:
@@ -265,8 +291,14 @@ class Plot(object):
 
 
    def set_axes_title(self):
-      xlabel = self.data.x.name if self.data.x is not None else 'count'
-      ylabel = self.data.y.name if self.data.y is not None else 'count'
+      if self.data.x is not None:
+         xlabel = self.data.x.name
+      else:
+         xlabel = 'density' if self.data.styles.get('normed',None) else 'count'
+      if self.data.y is not None:
+         ylabel = self.data.y.name
+      else:
+         ylabel = 'density' if self.data.styles.get('normed',None) else 'count'
 
       # default matplotlib's left offset is .125, right offset is .1
       if self.data.styles.get('legend_position',None) == 'right':
@@ -329,10 +361,10 @@ class QQPlot(Plot):
       for key, g in groups.items():
          x = [r[self.data.x.name] for r in g]
          y = [r[self.data.y.name] for r in g]
-         options[key]['marker'] = 'o'
-         options[key]['facecolors'] = options[key]['edgecolors'] = [options[key]['color']] * len(x)
-         del options[key]['color']
          if self.data.xy == 'discrete':
+            options[key]['marker'] = 'o'
+            options[key]['facecolors'] = options[key]['edgecolors'] = [options[key]['color']] * len(x)
+            del options[key]['color']
             self.axarr[idx].scatter(x,y, **options[key])
          elif self.data.xy == 'sequential':
             options[key]['marker'] = None
@@ -386,12 +418,19 @@ class CQPlot(Plot):
                raise Exception("Must set x variable to plot distributions.")
             values = [r[self.data.x.name] for r in g]
             options[key]['normed'] = self.data.styles.get('normed',False)
+            options[key]['histtype'] = 'stepfilled'
             self.axarr[idx].hist(values, self.data.styles.get('bars',10), **options[key])
          else:
             _, subgroups = split_rows_by_col(g, self.cvar)
             index = [ j + i*bar_width for j in range(len(subgroups)) ]
             keys = sorted(subgroups.keys())
-            values = [sum(r[self.qvar.name] if self.qvar is not None else 1 for r in subgroups[k]) if k in subgroups else 0 for k in keys]
+            if self.data.xy == 'count' or self.qvar is None:
+               values = [len(subgroups[k]) if k in subgroups else 0 for k in keys]
+            elif self.qvar is not None:
+               self.data.xy = 'sum'   # this is not good!  To be fixed.
+               values = [sum(r[self.qvar.name] for r in subgroups[k]) if k in subgroups else 0 for k in keys]
+
+
             if self.data.x is self.cvar:
                self.axarr[idx].bar(index, values, bar_width, **options[key])
             elif self.data.y is self.cvar:
