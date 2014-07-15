@@ -181,11 +181,11 @@ class Data(dict):
       if self.x is not None and self.y is not None:
          if qq_type(self.x, self.y):
             self._xy = value or 'discrete'
-            if self.xy not in ('discrete', 'sequential'):
+            if self.xy not in ('discrete', 'sequential', 'distribution'):
                raise Exception("Unknown xy type: " + self.xy)
          elif cq_type(self.x, self.y):
             self._xy = value or 'sum'
-            if self.xy not in ('sum', 'count', 'average', 'quartiles', 'distribution'):
+            if self.xy not in ('sum', 'count', 'average', 'quartiles'):
                raise Exception("Unknown xy type: " + self.xy)
       else:
          self._xy = value or 'count'
@@ -411,27 +411,39 @@ class CQPlot(Plot):
 
    def postcompute(self):
       labels = sorted(set(self.cvar))
-      ticks = [ i+(1.0-self.data.styles['bar_spacing'])*0.5 for i in range(len(labels))]
       for k, key in enumerate(sorted(self.rows)):
          idx = (k/self.n, k%self.n)
          if self.data.xy == 'distribution':
             self.axarr[idx].set_ybound(self.rmin, self.rmax)
-         else:
+         elif self.data.xy in ('sum', 'count'):
+            ticks = [ i+(1.0-self.data.styles['bar_spacing'])*0.5 for i in range(len(labels))]
             if self.data.y is self.qvar:
                self.axarr[idx].set_ybound(self.rmin, self.rmax)
-               self.axarr[idx].set_xticks(ticks)
                self.axarr[idx].set_xticklabels(labels)
+               self.axarr[idx].set_xticks(ticks)
                self.axarr[idx].set_xbound(0-self.data.styles['bar_spacing'], len(ticks))
             elif self.data.x is self.qvar:
                self.axarr[idx].set_xbound(self.rmin, self.rmax)
-               self.axarr[idx].set_yticks(ticks)
                self.axarr[idx].set_yticklabels(labels)
+               self.axarr[idx].set_yticks(ticks)
                self.axarr[idx].set_ybound(0-self.data.styles['bar_spacing'], len(ticks))
             else:
                raise Exception("Unsupported")
+         elif self.data.xy == 'quartiles':
+            # ticks = [ i for i in range(len(labels))]
+            ticks = [ i+(1.0-self.data.styles['bar_spacing'])*0.5 for i in range(len(labels))]
+            if self.data.y is self.qvar:
+               self.axarr[idx].set_ybound(self.rmin, self.rmax)
+               self.axarr[idx].set_xticklabels(labels)
+               self.axarr[idx].set_xticks(ticks)
+               self.axarr[idx].set_xbound(0-self.data.styles['bar_spacing'], len(ticks))
+            elif self.data.x is self.qvar:
+               self.axarr[idx].set_xbound(self.rmin, self.rmax)
+               self.axarr[idx].set_yticklabels(labels)
+               self.axarr[idx].set_yticks(ticks)
+               self.axarr[idx].set_ybound(0-self.data.styles['bar_spacing'], len(ticks))
 
    def plot_groups(self, idx, groups, options):
-      bar_width = (1.0 - self.data.styles['bar_spacing']) /float(len(groups))
       i = 0
       for key,g in groups.items():
          if self.data.xy == 'distribution':
@@ -443,19 +455,39 @@ class CQPlot(Plot):
             self.axarr[idx].hist(values, self.data.styles.get('bars',10), **options[key])
          else:
             _, subgroups = split_rows_by_col(g, self.cvar)
-            index = [ j + i*bar_width for j in range(len(subgroups)) ]
             keys = sorted(subgroups.keys())
             values = None
-            if self.data.xy == 'count' or self.qvar is None:
-               values = [len(subgroups[k]) if k in subgroups else 0 for k in keys]
-            elif self.data.xy == 'sum':
-               values = [sum(r[self.qvar.name] for r in subgroups[k]) if k in subgroups else 0 for k in keys]
-
-            if values is not None:
+            if self.data.xy == 'quartiles':
+               bar_width = (1.0 - self.data.styles['bar_spacing']) /float(len(groups)+1)
+               values = [ [r[self.qvar.name] for r in subgroups[k]] for k in keys ]
+               positions = [ j + (i+1)*bar_width for j in range(len(subgroups)) ]
                if self.data.x is self.cvar:
-                  self.axarr[idx].bar(index, values, bar_width, **options[key])
-               elif self.data.y is self.cvar:
-                  self.axarr[idx].barh(index, values, bar_width, **options[key])
+                  bp = self.axarr[idx].boxplot(values, patch_artist=True, positions=positions, widths=.8*bar_width)
+               else:
+                  bp = self.axarr[idx].boxplot(values, vert=False, patch_artist=True, positions=positions, widths=.8*bar_width)
+               for box in bp['boxes']:
+                  box.set(color=options[key]['color'])
+               for whisker in bp['whiskers']:
+                  whisker.set(color='grey')
+               for cap in bp['caps']:
+                  cap.set(color='grey')
+               for flier in bp['fliers']:
+                  flier.set(color='grey', markeredgecolor='grey', marker='+')
+               for median in bp['medians']:
+                  median.set(color='#333333')
+            else:
+               bar_width = (1.0 - self.data.styles['bar_spacing']) /float(len(groups))
+               positions = [ j + i*bar_width for j in range(len(subgroups)) ]
+               if self.data.xy == 'count' or self.qvar is None:
+                  values = [len(subgroups[k]) if k in subgroups else 0 for k in keys]
+               elif self.data.xy == 'sum':
+                  values = [sum(r[self.qvar.name] for r in subgroups[k]) if k in subgroups else 0 for k in keys]
+               if values is not None:
+                  if self.data.x is self.cvar:
+                     self.axarr[idx].bar(positions, values, bar_width, **options[key])
+                  elif self.data.y is self.cvar:
+                     self.axarr[idx].barh(positions, values, bar_width, **options[key])
+
          i += 1
 
       if self.data.y is self.qvar:
