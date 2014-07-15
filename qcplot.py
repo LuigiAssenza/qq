@@ -51,6 +51,7 @@ class Row(dict):
 class Column(list):
    def __init__(self, name, data):
       self.name = name
+      self.label = name
       self.data = data
       self._type = 0   # default is type str, categorical
 
@@ -292,7 +293,7 @@ class Plot(object):
       if self.data.styles.get('legend_position', None) == 'right':
          self.figure.subplots_adjust(right=1-self.data.styles['legend_space'])
          self.figure.legend(self.legend_markers, self.legend_labels, loc="center right", \
-            title=self.data.group.name, numpoints=1, bbox_to_anchor=(1, 0.5), ncol=self.data.styles['legend_cols'])
+            title=self.data.group.label, numpoints=1, bbox_to_anchor=(1, 0.5), ncol=self.data.styles['legend_cols'])
       elif self.data.styles.get('legend_position', None) == 'top':
          self.figure.subplots_adjust(top=1-self.data.styles['legend_space'])
          self.figure.legend(self.legend_markers, self.legend_labels,  loc='upper center', numpoints=1, \
@@ -313,11 +314,11 @@ class Plot(object):
 
    def set_axes_title(self):
       if self.data.x is not None:
-         xlabel = self.data.x.name
+         xlabel = self.data.x.label
       else:
          xlabel = 'density' if self.data.styles.get('normed',None) else 'count'
       if self.data.y is not None:
-         ylabel = self.data.y.name
+         ylabel = self.data.y.label
       else:
          ylabel = 'density' if self.data.styles.get('normed',None) else 'count'
 
@@ -415,7 +416,7 @@ class CQPlot(Plot):
          idx = (k/self.n, k%self.n)
          if self.data.xy == 'distribution':
             self.axarr[idx].set_ybound(self.rmin, self.rmax)
-         elif self.data.xy in ('sum', 'count'):
+         else:
             ticks = [ i+(1.0-self.data.styles['bar_spacing'])*0.5 for i in range(len(labels))]
             if self.data.y is self.qvar:
                self.axarr[idx].set_ybound(self.rmin, self.rmax)
@@ -429,23 +430,11 @@ class CQPlot(Plot):
                self.axarr[idx].set_ybound(0-self.data.styles['bar_spacing'], len(ticks))
             else:
                raise Exception("Unsupported")
-         elif self.data.xy == 'quartiles':
-            # ticks = [ i for i in range(len(labels))]
-            ticks = [ i+(1.0-self.data.styles['bar_spacing'])*0.5 for i in range(len(labels))]
-            if self.data.y is self.qvar:
-               self.axarr[idx].set_ybound(self.rmin, self.rmax)
-               self.axarr[idx].set_xticklabels(labels)
-               self.axarr[idx].set_xticks(ticks)
-               self.axarr[idx].set_xbound(0-self.data.styles['bar_spacing'], len(ticks))
-            elif self.data.x is self.qvar:
-               self.axarr[idx].set_xbound(self.rmin, self.rmax)
-               self.axarr[idx].set_yticklabels(labels)
-               self.axarr[idx].set_yticks(ticks)
-               self.axarr[idx].set_ybound(0-self.data.styles['bar_spacing'], len(ticks))
 
    def plot_groups(self, idx, groups, options):
       i = 0
-      for key,g in groups.items():
+      for key in sorted(groups.keys()):
+         g = groups[key]
          if self.data.xy == 'distribution':
             if self.data.x is None:
                raise Exception("Must set x variable to plot distributions.")
