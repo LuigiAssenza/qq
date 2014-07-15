@@ -49,15 +49,37 @@ class Row(dict):
 #-----------------------------------------------------------------------------
 
 class Column(list):
-   def __init__(self, name=None):
+   def __init__(self, name, data):
       self.name = name
-      self.type = 0   # default is type str, categorical
+      self.data = data
+      self._type = 0   # default is type str, categorical
 
-   def set_type(self):
+   @property
+   def type(self):
+      return self._type
+
+   @type.setter
+   def type(self, value):
+      if isinstance(value, basestring):
+         if value == 'categorical':
+            self._type = 0
+         elif value == 'discrete':
+            self._type = 1
+         elif value == 'continuous':
+            self._type = 2
+         else:
+            raise Exception('Unknown column type')
+      elif value not in (0, 1, 2):
+         raise Exception('Unknown column type')
+      else:
+         self._type = value
+      self.data.xy = None   # this is a hack to force default assignment on xy
+
+   def init_type(self):
       if all(isinstance(v, int) for v in self):
-         self.type = 1
+         self._type = 1
       elif all((isinstance(v,int) or isinstance(v,float)) for v in self):
-         self.type = 2
+         self._type = 2
 
 
 #-----------------------------------------------------------------------------
@@ -106,13 +128,15 @@ class Data(dict):
    size = ColumnProp('size')
 
    def __init__(self, header, lines):
+      self._xy = None
       self.styles = { 'bar_spacing' : 0.2 }
       self._cur_index_ = -1
       column_names = [ clean_string(s) for s in header ]
 
       for name in column_names:
-         self[name] = Column(name)
+         self[name] = Column(name, self)
       self._rows_ = []
+
 
       for line in lines:
          values = [ clean_string(s) for s in line ]
@@ -128,11 +152,10 @@ class Data(dict):
          self._rows_.append(row)
 
       for name in column_names:
-         self[name].set_type()
+         self[name].init_type()
 
       self.nrow = len(self._rows_)
       self.ncol = len(self.keys())
-      self._xy = None
 
    # Iterate through rows
    def __iter__(self):
@@ -152,24 +175,22 @@ class Data(dict):
 
    @xy.setter
    def xy(self, value):
+      if self.x is None and self.y is None:
+         raise Exception("cannot define xy without x and y defined.")
+
       if self.x is not None and self.y is not None:
          if qq_type(self.x, self.y):
             self._xy = value or 'discrete'
-            self.check_xy('qq')
+            if self.xy not in ('discrete', 'sequential'):
+               raise Exception("Unknown xy type: " + self.xy)
          elif cq_type(self.x, self.y):
             self._xy = value or 'sum'
-            self.check_xy('cq')
+            if self.xy not in ('sum', 'count', 'average', 'quartiles', 'distribution'):
+               raise Exception("Unknown xy type: " + self.xy)
       else:
          self._xy = value or 'count'
-         self.check_xy('cq')
-
-   def check_xy(self, t):
-      if t == 'qq':
-         if self.xy not in ('discrete', 'sequential'):
-            raise Exception("Unknown xy type")
-      else:
-         if self.xy not in ('count', 'sum', 'average', 'quartiles', 'distribution'):
-            raise Exception("Unknown xy type")
+         if self.xy not in ('count', 'distribution'):
+            raise Exception("Unknown xy type: " + self.xy)
 
    def set(self, x=None, y=None, group=None, size=None, xx=None, yy=None, xy=None):
       self.x = x
@@ -424,17 +445,17 @@ class CQPlot(Plot):
             _, subgroups = split_rows_by_col(g, self.cvar)
             index = [ j + i*bar_width for j in range(len(subgroups)) ]
             keys = sorted(subgroups.keys())
+            values = None
             if self.data.xy == 'count' or self.qvar is None:
                values = [len(subgroups[k]) if k in subgroups else 0 for k in keys]
-            elif self.qvar is not None:
-               self.data.xy = 'sum'   # this is not good!  To be fixed.
+            elif self.data.xy == 'sum':
                values = [sum(r[self.qvar.name] for r in subgroups[k]) if k in subgroups else 0 for k in keys]
 
-
-            if self.data.x is self.cvar:
-               self.axarr[idx].bar(index, values, bar_width, **options[key])
-            elif self.data.y is self.cvar:
-               self.axarr[idx].barh(index, values, bar_width, **options[key])
+            if values is not None:
+               if self.data.x is self.cvar:
+                  self.axarr[idx].bar(index, values, bar_width, **options[key])
+               elif self.data.y is self.cvar:
+                  self.axarr[idx].barh(index, values, bar_width, **options[key])
          i += 1
 
       if self.data.y is self.qvar:
