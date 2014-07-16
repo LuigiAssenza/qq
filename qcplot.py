@@ -9,7 +9,7 @@ import numpy as np
 import math
 from utils import *
 
-from matplotlib import style
+from matplotlib import style, cm
 style.use('ggplot')
 color = Color()
 
@@ -207,8 +207,10 @@ class Data(dict):
          return
       if self.x is None or self.y is None or cq_type(self.x, self.y):
          p = CQPlot(self)
+         self.styles['legend_marker'] = 's'
       elif qq_type(self.x, self.y):
          p = QQPlot(self)
+         self.styles['legend_marker'] = 'o'
       else:
          raise Exception("Not Implemented")
       p.plot()
@@ -283,7 +285,7 @@ class Plot(object):
          self.color_map = { c:colors[i] for i,c in enumerate(self.legend_labels) }
 
          self.legend_markers = [
-            plt.Line2D([],[], marker='o', linewidth=0, mfc=self.color_map[v], mec=self.color_map[v]) for v in self.legend_labels ]
+            plt.Line2D([],[], marker=self.data.styles['legend_marker'], linewidth=0, mfc=self.color_map[v], mec=self.color_map[v]) for v in self.legend_labels ]
       else:
          colors = color.get('Qualitative', 'Set1', 1)
          self.color_map = { None : colors[0] }
@@ -417,6 +419,8 @@ class CQPlot(Plot):
          if self.data.xy == 'distribution':
             self.axarr[idx].set_ybound(self.rmin, self.rmax)
          else:
+            if self.data.xy == 'quartiles':
+               self.data.styles['bar_spacing'] = 0
             ticks = [ i+(1.0-self.data.styles['bar_spacing'])*0.5 for i in range(len(labels))]
             if self.data.y is self.qvar:
                self.axarr[idx].set_ybound(self.rmin, self.rmax)
@@ -447,7 +451,7 @@ class CQPlot(Plot):
             keys = sorted(subgroups.keys())
             values = None
             if self.data.xy == 'quartiles':
-               bar_width = (1.0 - self.data.styles['bar_spacing']) /float(len(groups)+1)
+               bar_width = 1.0 /float(len(groups)+1)
                values = [ [r[self.qvar.name] for r in subgroups[k]] for k in keys ]
                positions = [ j + (i+1)*bar_width for j in range(len(subgroups)) ]
                if self.data.x is self.cvar:
