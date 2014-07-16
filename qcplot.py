@@ -265,47 +265,68 @@ class Plot(object):
       return [ (blue[0], blue[1], blue[2], a) for a in alphas ]
 
    def prepare_legend(self):
+      self.legend_colorbar = False
       if self.data.group is not None:
-         self.data.styles.setdefault('legend_position', 'right')
-         if self.data.styles['legend_position'] == 'right':
-            self.data.styles.setdefault('legend_space', 0.2)
-            self.data.styles.setdefault('legend_cols', 1)
-         elif self.data.styles['legend_position'] == 'top':
-            self.data.styles.setdefault('legend_space', 0.12)
-            self.data.styles.setdefault('legend_rows', 1)
          self.legend_labels = sorted(set(self.data[self.data.group.name]))
 
          # set color theme
          if self.data.group.type > 0 and qq_type(self.data.x, self.data.y):
-            colors = self.get_sequential_colors()
+            if len(self.legend_labels) < 9:
+               colors = self.get_sequential_colors()
+            else:
+               self.legend_colorbar = True
+               self.vmin, self.vmax = min(self.data.group), max(self.data.group)
          else:
             if len(self.legend_labels) > 9:
                raise Exception("Too many colors.")
             colors = color.get('Qualitative', 'Set1', len(self.legend_labels))
-         self.color_map = { c:colors[i] for i,c in enumerate(self.legend_labels) }
 
-         self.legend_markers = [
-            plt.Line2D([],[], marker=self.data.styles['legend_marker'], linewidth=0, mfc=self.color_map[v], mec=self.color_map[v]) for v in self.legend_labels ]
+         # set legend markers in case there is no color bar
+         if not self.legend_colorbar:
+            self.color_map = { c:colors[i] for i,c in enumerate(self.legend_labels) }
+            self.legend_markers = [
+               plt.Line2D([],[], marker=self.data.styles['legend_marker'], linewidth=0, mfc=self.color_map[v], mec=self.color_map[v]) for v in self.legend_labels ]
+
+         # set parameters for position of legend
+         self.data.styles.setdefault('legend_position', 'right')
+         if self.legend_colorbar:
+            self.data.styles.setdefault('legend_space', 0)
+         else:
+            if self.data.styles['legend_position'] == 'right':
+               self.data.styles.setdefault('legend_space', 0.2)
+               self.data.styles.setdefault('legend_cols', 1)
+            elif self.data.styles['legend_position'] == 'top':
+               self.data.styles.setdefault('legend_space', 0.12)
+               self.data.styles.setdefault('legend_rows', 1)
+
       else:
          colors = color.get('Qualitative', 'Set1', 1)
          self.color_map = { None : colors[0] }
 
 
    def set_legend(self):
-      if self.data.styles.get('legend_position', None) == 'right':
-         self.figure.subplots_adjust(right=1-self.data.styles['legend_space'])
-         self.figure.legend(self.legend_markers, self.legend_labels, loc="center right", \
-            title=self.data.group.label, numpoints=1, bbox_to_anchor=(1, 0.5), ncol=self.data.styles['legend_cols'])
-      elif self.data.styles.get('legend_position', None) == 'top':
-         self.figure.subplots_adjust(top=1-self.data.styles['legend_space'])
-         self.figure.legend(self.legend_markers, self.legend_labels,  loc='upper center', numpoints=1, \
-            title=self.data.group.name, bbox_to_anchor=(0.5, 1), ncol=len(self.legend_labels)/self.data.styles['legend_rows'])
+      if not self.legend_colorbar:
+         if self.data.styles.get('legend_position', None) == 'right':
+            self.figure.subplots_adjust(right=1-self.data.styles['legend_space'])
+            self.figure.legend(self.legend_markers, self.legend_labels, loc="center right", \
+               title=self.data.group.label, numpoints=1, bbox_to_anchor=(1, 0.5), ncol=self.data.styles['legend_cols'])
+         elif self.data.styles.get('legend_position', None) == 'top':
+            self.figure.subplots_adjust(top=1-self.data.styles['legend_space'])
+            self.figure.legend(self.legend_markers, self.legend_labels,  loc='upper center', numpoints=1, \
+               title=self.data.group.name, bbox_to_anchor=(0.5, 1), ncol=len(self.legend_labels)/self.data.styles['legend_rows'])
+      else:
+         if self.data.styles.get('legend_position', None) == 'right':
+            self.figure.subplots_adjust(right=1-self.data.styles['legend_space'])
+            legend = self.figure.colorbar(self.mappable, ax=self.axarr.ravel().tolist(), pad=.1, shrink=.7, aspect=20)
+            legend.ax.set_ylabel(self.data.group.name, rotation=0, labelpad=-15, position=(0,1.08))
+         else:
+            self.figure.subplots_adjust(bottom=self.data.styles['legend_space'])
+            legend = self.figure.colorbar(self.mappable, ax=self.axarr.ravel().tolist(), shrink=.7, aspect=20, orientation='horizontal')
+            legend.ax.set_ylabel(self.data.group.name, rotation=0, labelpad=25, position=(0,0.2))
 
 
    def update_plot_options(self, groups, options):
       for k, group in groups.items():
-         options[k].update(color = self.color_map[k])
-
          if self.data.size is not None:
             if isinstance(self.data.size, int) or isinstance(self.data.size, float):
                options[k].update(s = self.data.size)
@@ -313,6 +334,12 @@ class Plot(object):
                t = self.data.size.transform
                options[k].update(s = [r[self.data.size.name] if t is None else t(r[self.data.size.name]) for r in group])
 
+         if self.legend_colorbar:
+            c = [r[self.data.group.name] for r in group]
+            if c:
+               options[k].update(cmap=cm.Blues, c=c, vmin=self.vmin, vmax=self.vmax)
+         else:
+            options[k].update(color = self.color_map[k])
 
    def set_axes_title(self):
       if self.data.x is not None:
@@ -326,7 +353,10 @@ class Plot(object):
 
       # default matplotlib's left offset is .125, right offset is .1
       if self.data.styles.get('legend_position',None) == 'right':
-         xlabel_left = .125+(1-self.data.styles.get('legend_space',.1)-.125)*.5
+         if self.legend_colorbar:
+            xlabel_left = .125 + (1-.345)*0.5    # THIS IS A HACK.  TO BE FIXED.
+         else:
+            xlabel_left = .125+(1-self.data.styles.get('legend_space',.1)-.125)*.5
       else:
          xlabel_left = .125+(1-.1-.125)*.5
 
@@ -334,7 +364,13 @@ class Plot(object):
          ylabel_middle = .1+(1-self.data.styles.get('legend_space',.1)-.1)*.5
       else:
          ylabel_middle = .1+(1-.1-.1)*.5
-      self.figure.text(xlabel_left, 0.05, xlabel, ha='center', va='top')
+
+      if self.legend_colorbar and self.data.styles.get('legend_position',None) != 'right':
+         xlabel_vertical = 0.2
+      else:
+         xlabel_vertical = 0.05
+
+      self.figure.text(xlabel_left, xlabel_vertical, xlabel, ha='center', va='top')
       self.figure.text(0.04, ylabel_middle, ylabel, ha='left', va='center', rotation='vertical')
 
 
@@ -387,9 +423,12 @@ class QQPlot(Plot):
          y = [r[self.data.y.name] for r in g]
          if self.data.xy == 'discrete':
             options[key]['marker'] = 'o'
-            options[key]['facecolors'] = options[key]['edgecolors'] = [options[key]['color']] * len(x)
-            del options[key]['color']
-            self.axarr[idx].scatter(x,y, **options[key])
+            if not self.legend_colorbar:
+               options[key]['facecolors'] = options[key]['edgecolors'] = [options[key]['color']] * len(x)
+               del options[key]['color']
+            plot_res = self.axarr[idx].scatter(x,y, **options[key])
+            if 'cmap' in options[key]:
+               self.mappable = plot_res
          elif self.data.xy == 'sequential':
             options[key]['marker'] = None
             self.axarr[idx].plot(x,y, **options[key])
@@ -455,18 +494,18 @@ class CQPlot(Plot):
                values = [ [r[self.qvar.name] for r in subgroups[k]] for k in keys ]
                positions = [ j + (i+1)*bar_width for j in range(len(subgroups)) ]
                if self.data.x is self.cvar:
-                  bp = self.axarr[idx].boxplot(values, patch_artist=True, positions=positions, widths=.8*bar_width)
+                  plot_res = self.axarr[idx].boxplot(values, patch_artist=True, positions=positions, widths=.8*bar_width)
                else:
-                  bp = self.axarr[idx].boxplot(values, vert=False, patch_artist=True, positions=positions, widths=.8*bar_width)
-               for box in bp['boxes']:
+                  plot_res = self.axarr[idx].boxplot(values, vert=False, patch_artist=True, positions=positions, widths=.8*bar_width)
+               for box in plot_res['boxes']:
                   box.set(color=options[key]['color'])
-               for whisker in bp['whiskers']:
+               for whisker in plot_res['whiskers']:
                   whisker.set(color='grey')
-               for cap in bp['caps']:
+               for cap in plot_res['caps']:
                   cap.set(color='grey')
-               for flier in bp['fliers']:
+               for flier in plot_res['fliers']:
                   flier.set(color='grey', markeredgecolor='grey', marker='+')
-               for median in bp['medians']:
+               for median in plot_res['medians']:
                   median.set(color='#333333')
             else:
                bar_width = (1.0 - self.data.styles['bar_spacing']) /float(len(groups))
@@ -480,6 +519,8 @@ class CQPlot(Plot):
                      self.axarr[idx].bar(positions, values, bar_width, **options[key])
                   elif self.data.y is self.cvar:
                      self.axarr[idx].barh(positions, values, bar_width, **options[key])
+                  else:
+                     raise Exception("Unknown plot")
 
          i += 1
 
