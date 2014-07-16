@@ -360,6 +360,7 @@ class Plot(object):
       self.figure.text(xmin+(xmax-xmin)*0.5, ymin-0.05, xlabel, ha='center', va='top')
       self.figure.text(0.05, ymin+(ymax-ymin)*0.5, ylabel, ha='left', va='center', rotation='vertical')
 
+
    def plot(self):
       data = self.data
       self.m, self.n, self.rows = split_rows_by_2cols(data._rows_, data.xx, data.yy)
@@ -381,11 +382,19 @@ class Plot(object):
          self.update_plot_options(groups, options)
          self.plot_groups(idx, groups, options)
 
-
       self.postcompute()
       self.set_legend()
       self.set_labels()
       plt.show()
+
+
+   def precompute(self):
+      ''' this function is defined at the child level '''
+      pass
+
+   def postcompute(self):
+      ''' this function is defined at the child level '''
+      pass
 
 #-----------------------------------------------------------------------------
 
