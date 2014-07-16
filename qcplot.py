@@ -294,10 +294,8 @@ class Plot(object):
          else:
             if self.data.styles['legend_position'] == 'right':
                self.data.styles.setdefault('legend_space', 0.2)
-               self.data.styles.setdefault('legend_cols', 1)
             elif self.data.styles['legend_position'] == 'top':
                self.data.styles.setdefault('legend_space', 0.12)
-               self.data.styles.setdefault('legend_rows', 1)
 
       else:
          colors = color.get('Qualitative', 'Set1', 1)
@@ -307,22 +305,25 @@ class Plot(object):
    def set_legend(self):
       if not self.legend_colorbar:
          if self.data.styles.get('legend_position', None) == 'right':
+            self.data.styles.setdefault('legend_cols', 1)
             self.figure.subplots_adjust(right=1-self.data.styles['legend_space'])
             self.figure.legend(self.legend_markers, self.legend_labels, loc="center right", \
                title=self.data.group.label, numpoints=1, bbox_to_anchor=(1, 0.5), ncol=self.data.styles['legend_cols'])
          elif self.data.styles.get('legend_position', None) == 'top':
+            self.data.styles.setdefault('legend_cols', len(self.legend_labels))
             self.figure.subplots_adjust(top=1-self.data.styles['legend_space'])
             self.figure.legend(self.legend_markers, self.legend_labels,  loc='upper center', numpoints=1, \
-               title=self.data.group.name, bbox_to_anchor=(0.5, 1), ncol=len(self.legend_labels)/self.data.styles['legend_rows'])
+               title=self.data.group.name, bbox_to_anchor=(0.5, 1), ncol=self.data.styles['legend_cols'])
       else:
          if self.data.styles.get('legend_position', None) == 'right':
             self.figure.subplots_adjust(right=1-self.data.styles['legend_space'])
             legend = self.figure.colorbar(self.mappable, ax=self.axarr.ravel().tolist(), pad=.1, shrink=.7, aspect=20)
-            legend.ax.set_ylabel(self.data.group.name, rotation=0, labelpad=-15, position=(0,1.08))
+            legend.ax.set_ylabel(self.data.group.label, rotation=0, labelpad=-15, position=(0,1.08))
          else:
             self.figure.subplots_adjust(bottom=self.data.styles['legend_space'])
             legend = self.figure.colorbar(self.mappable, ax=self.axarr.ravel().tolist(), shrink=.7, aspect=20, orientation='horizontal')
-            legend.ax.set_ylabel(self.data.group.name, rotation=0, labelpad=25, position=(0,0.2))
+            labelpad = max(30, 4 * len(self.data.group.label))
+            legend.ax.set_ylabel(self.data.group.label, rotation=0, position=(0,0), labelpad=labelpad)
 
 
    def update_plot_options(self, groups, options):
@@ -337,11 +338,11 @@ class Plot(object):
          if self.legend_colorbar:
             c = [r[self.data.group.name] for r in group]
             if c:
-               options[k].update(cmap=cm.Blues, c=c, vmin=self.vmin, vmax=self.vmax)
+               options[k].update(cmap=cm.copper, c=c, vmin=self.vmin, vmax=self.vmax)
          else:
             options[k].update(color = self.color_map[k])
 
-   def set_axes_title(self):
+   def set_labels(self):
       if self.data.x is not None:
          xlabel = self.data.x.label
       else:
@@ -351,28 +352,13 @@ class Plot(object):
       else:
          ylabel = 'density' if self.data.styles.get('normed',None) else 'count'
 
-      # default matplotlib's left offset is .125, right offset is .1
-      if self.data.styles.get('legend_position',None) == 'right':
-         if self.legend_colorbar:
-            xlabel_left = .125 + (1-.345)*0.5    # THIS IS A HACK.  TO BE FIXED.
-         else:
-            xlabel_left = .125+(1-self.data.styles.get('legend_space',.1)-.125)*.5
-      else:
-         xlabel_left = .125+(1-.1-.125)*.5
+      xmin = min( self.axarr[k/self.n, k%self.n].get_position().xmin for k in range(len(self.rows.keys())) )
+      xmax = max( self.axarr[k/self.n, k%self.n].get_position().xmax for k in range(len(self.rows.keys())) )
+      ymin = min( self.axarr[k/self.n, k%self.n].get_position().ymin for k in range(len(self.rows.keys())) )
+      ymax = max( self.axarr[k/self.n, k%self.n].get_position().ymax for k in range(len(self.rows.keys())) )
 
-      if self.data.styles.get('legend_position',None) == 'top':
-         ylabel_middle = .1+(1-self.data.styles.get('legend_space',.1)-.1)*.5
-      else:
-         ylabel_middle = .1+(1-.1-.1)*.5
-
-      if self.legend_colorbar and self.data.styles.get('legend_position',None) != 'right':
-         xlabel_vertical = 0.2
-      else:
-         xlabel_vertical = 0.05
-
-      self.figure.text(xlabel_left, xlabel_vertical, xlabel, ha='center', va='top')
-      self.figure.text(0.04, ylabel_middle, ylabel, ha='left', va='center', rotation='vertical')
-
+      self.figure.text(xmin+(xmax-xmin)*0.5, ymin-0.05, xlabel, ha='center', va='top')
+      self.figure.text(0.05, ymin+(ymax-ymin)*0.5, ylabel, ha='left', va='center', rotation='vertical')
 
    def plot(self):
       data = self.data
@@ -390,14 +376,15 @@ class Plot(object):
             self.axarr[idx].text(1.05, 0.5, yy_label, ha='left', va='center', rotation=270, transform=self.axarr[idx].transAxes)
          self.figure.subplots_adjust(hspace=0, wspace=0)
 
-         self.set_axes_title()
          _, groups = split_rows_by_col(self.rows[grid_id], data.group)
          options =  { k : dict(alpha=self.data.styles.get('alpha', None)) for k in groups }
          self.update_plot_options(groups, options)
          self.plot_groups(idx, groups, options)
 
+
       self.postcompute()
       self.set_legend()
+      self.set_labels()
       plt.show()
 
 #-----------------------------------------------------------------------------
