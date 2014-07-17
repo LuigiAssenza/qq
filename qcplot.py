@@ -313,17 +313,17 @@ class Plot(object):
             self.data.styles.setdefault('legend_cols', len(self.legend_labels))
             self.figure.subplots_adjust(top=1-self.data.styles['legend_space'])
             self.figure.legend(self.legend_markers, self.legend_labels,  loc='upper center', numpoints=1, \
-               title=self.data.group.name, bbox_to_anchor=(0.5, 1), ncol=self.data.styles['legend_cols'])
+               title=self.data.group.label, bbox_to_anchor=(0.5, 1), ncol=self.data.styles['legend_cols'])
+
       else:
          if self.data.styles.get('legend_position', None) == 'right':
             self.figure.subplots_adjust(right=1-self.data.styles['legend_space'])
-            legend = self.figure.colorbar(self.mappable, ax=self.axarr.ravel().tolist(), pad=.1, shrink=.7, aspect=20)
-            legend.ax.set_ylabel(self.data.group.label, rotation=0, labelpad=-15, position=(0,1.08))
+            legend = self.figure.colorbar(self.mappable, ax=self.axarr.ravel().tolist(), aspect=20)
+            legend.ax.set_title(self.data.group.label, fontsize='medium')
          else:
             self.figure.subplots_adjust(bottom=self.data.styles['legend_space'])
-            legend = self.figure.colorbar(self.mappable, ax=self.axarr.ravel().tolist(), shrink=.7, aspect=20, orientation='horizontal')
-            labelpad = max(30, 4 * len(self.data.group.label))
-            legend.ax.set_ylabel(self.data.group.label, rotation=0, position=(0,0), labelpad=labelpad)
+            legend = self.figure.colorbar(self.mappable, ax=self.axarr.ravel().tolist(), aspect=20, pad=0.12, orientation='horizontal')
+            legend.ax.set_xlabel(self.data.group.label, position=(0.5,0), fontsize='medium')
 
 
    def update_plot_options(self, groups, options):
@@ -409,9 +409,6 @@ class QQPlot(Plot):
          return r[0]-buffer, r[1]+buffer
       self.rangex = f(self.data.x)
       self.rangey = f(self.data.y)
-
-   def postcompute(self):
-      pass
 
    def plot_groups(self, idx, groups, options):
       for key, g in groups.items():
