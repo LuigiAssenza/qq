@@ -369,13 +369,16 @@ class Plot(object):
       self.precompute()
       for k, grid_id in enumerate(sorted(self.rows.keys())):
          idx = (k/self.n, k%self.n)
-         xx_label = '%s = %s'%(data.xx.name,grid_id[1]) if data.xx is not None else ''
-         yy_label = '%s = %s'%(data.yy.name,grid_id[0]) if data.yy is not None else ''
-         if k<self.n:
-            self.axarr[idx].text(0.5, 1.05, xx_label, ha='center', va='bottom', rotation=0, transform=self.axarr[idx].transAxes)
-         if (k+1)%self.n==0:
-            self.axarr[idx].text(1.05, 0.5, yy_label, ha='left', va='center', rotation=270, transform=self.axarr[idx].transAxes)
          self.figure.subplots_adjust(hspace=0, wspace=0)
+         self.axarr[idx].tick_params(top='off', right='off')
+         if data.xx is not None and k<self.n:
+            label_spacing = 1.01+0.015*(0.9-0.1)/(self.axarr[idx].get_position().ymax-self.axarr[idx].get_position().ymin)
+            xx_label = '%s = %s'%(data.xx.name,grid_id[1])
+            self.axarr[idx].text(0.5, label_spacing, xx_label, ha='center', va='bottom', rotation=0, transform=self.axarr[idx].transAxes)
+         if data.yy is not None and (k+1)%self.n==0:
+            label_spacing = 1.01+0.015*(0.9-0.125)/ (self.axarr[idx].get_position().xmax-self.axarr[idx].get_position().xmin)
+            yy_label = '%s = %s'%(data.yy.name,grid_id[0])
+            self.axarr[idx].text(label_spacing, 0.5, yy_label, ha='left', va='center', rotation=270, transform=self.axarr[idx].transAxes)
 
          _, groups = split_rows_by_col(self.rows[grid_id], data.group)
          options =  { k : dict(alpha=self.data.styles.get('alpha', None)) for k in groups }
