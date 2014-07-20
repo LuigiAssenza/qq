@@ -373,11 +373,11 @@ class Plot(object):
          self.axarr[idx].tick_params(top='off', right='off')
          if data.xx is not None and k<self.n:
             label_spacing = 1.01+0.015*(0.9-0.1)/(self.axarr[idx].get_position().ymax-self.axarr[idx].get_position().ymin)
-            xx_label = '%s = %s'%(data.xx.name,grid_id[1])
+            xx_label = '%s = %s'%(data.xx.label,grid_id[1]) if data.xx.label else grid_id[1]
             self.axarr[idx].text(0.5, label_spacing, xx_label, ha='center', va='bottom', rotation=0, transform=self.axarr[idx].transAxes)
          if data.yy is not None and (k+1)%self.n==0:
             label_spacing = 1.01+0.015*(0.9-0.125)/ (self.axarr[idx].get_position().xmax-self.axarr[idx].get_position().xmin)
-            yy_label = '%s = %s'%(data.yy.name,grid_id[0])
+            yy_label = '%s = %s'%(data.yy.label,grid_id[0]) if data.yy.label else grid_id[0]
             self.axarr[idx].text(label_spacing, 0.5, yy_label, ha='left', va='center', rotation=270, transform=self.axarr[idx].transAxes)
 
          _, groups = split_rows_by_col(self.rows[grid_id], data.group)
