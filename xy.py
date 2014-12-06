@@ -27,7 +27,7 @@ def read(filename, sep=None, header=None, skip_header=0):
          raise Exception("Unknown file type.  Please specify separator.")
 
    with open(filename, 'rU') as f:
-      reader = csv.reader(f)
+      reader = csv.reader(f, delimiter=sep)
       rows = []
       for row in reader:
          if skip_header > 0:
