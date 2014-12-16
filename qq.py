@@ -278,7 +278,7 @@ class Plot(object):
                self.vmin, self.vmax = min(self.data.group), max(self.data.group)
          else:
             if len(self.legend_labels) > 9:
-               raise Exception("Too many colors.")
+               raise Exception("Too many colors: %d" % len(self.legend_labels))
             colors = color.get('Qualitative', 'Set1', len(self.legend_labels))
 
          # set legend markers in case there is no color bar
@@ -529,3 +529,63 @@ class CQPlot(Plot):
 
 
 #-----------------------------------------------------------------------------
+
+if __name__ == '__main__':
+   MAX_NUM_CAT = 8
+
+   def plot2():
+      if args.z is not None:
+         if args.u is not None:
+            assert(len(set(data[args.u])) <= MAX_NUM_CAT)
+            if args.v is not None:
+               assert(len(set(data[args.v])) <= MAX_NUM_CAT)
+               data.xx = args.z
+               data.yy = args.u
+               data.group = args.v
+               data.plot()
+            else:
+               data.xx = args.z
+               data.yy = args.u
+               data.plot()
+         else:
+            if len(set(data[args.z])) <= MAX_NUM_CAT:
+               data.xx = args.z
+               data.plot()
+               data.xx = None
+               data.yy = args.z
+               data.plot()
+               data.yy = None
+
+            if data.x.type!=0 or len(set(data[args.z])) <= MAX_NUM_CAT:
+               data.group = args.z
+               data.plot()
+               if data.group.type!=0 and len(set(data[args.z])) <= MAX_NUM_CAT:
+                  data.group.type = 0
+                  data.plot()
+
+      else:
+         data.plot()
+
+   import argparse
+   parser = argparse.ArgumentParser()
+   parser.add_argument("file", help="data file in tab or comma separated format.  Must have a header with column names.")
+   parser.add_argument("x", help="column representing the x axis.")
+   parser.add_argument("y", nargs='?', default=None, help="column representing the y axis.")
+   parser.add_argument("z", nargs='?', default=None)
+   parser.add_argument("u", nargs='?', default=None)
+   parser.add_argument("v", nargs='?', default=None)
+   parser.add_argument("-c", "--comma", action="store_true", default=False, help="separator is comma, instead of tab (which is default).")
+
+   args = parser.parse_args()
+   data = read(args.file)
+   data.set(x=args.x, y=args.y, xy=None)
+   if data.y is not None:
+      plot2()
+      if data.x.type==0:
+         data.xy = "quartiles"
+         plot2()
+      elif len(set(data.x))<=MAX_NUM_CAT:
+         data.x.type = 0
+         data.xy = "quartiles"
+         plot2()
+
