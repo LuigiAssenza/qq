@@ -16,3 +16,9 @@ optional arguments:
   -h, --help   show this help message and exit
   -c, --comma  separator is comma, instead of tab (which is default).
 ```
+
+Examples:
+
++ Simple scatter plot, providing x and y variables.
+
+    python qq.py data/mpg.csv cty hwy
