@@ -1,5 +1,12 @@
 qq.py simplifies plotting.  As it has limited customization, it is appropriate for quick analysis of data.
 
+## Instalation
+
+- Python
+- Numpy
+- Matplotlib
+
+## Usage
 ```
 usage: qq.py [-h] [-c] file x [y] [z] [u] [v]
 
