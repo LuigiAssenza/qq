@@ -574,7 +574,7 @@ if __name__ == '__main__':
    parser.add_argument("z", nargs='?', default=None)
    parser.add_argument("u", nargs='?', default=None)
    parser.add_argument("v", nargs='?', default=None)
-   parser.add_argument("-c", "--comma", action="store_true", default=False, help="separator is comma, instead of tab (which is default).")
+   # parser.add_argument("-c", "--comma", action="store_true", default=False, help="separator is comma, instead of tab (which is default).")
 
    args = parser.parse_args()
    data = read(args.file)
